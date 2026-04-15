@@ -1,0 +1,13 @@
+Library/
+Temp/
+Obj/
+Build/
+Builds/
+Logs/
+UserSettings/
+.vs/
+Config.json
+Assets/text2D/
+Assets/Scripts/UmaDatabase.zip
+Assets/Scripts/umamusume.zip
+Assets/*.csv
