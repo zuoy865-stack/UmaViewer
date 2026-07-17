@@ -9,6 +9,7 @@ using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
 using UnityEngine.Rendering;
+using Gallop.Live.Cutt; // For FacialMouthId
 using static BillboardBuilder;
 using static LibMMD.Model.Morph;
 using static LibMMD.Model.SkinningOperator;
@@ -27,22 +28,30 @@ public class ModelExporter
         container.UmaAnimator?.Rebind();
         container.EnableEyeTracking = false;
         container.FaceDrivenKeyTarget?.FacialResetAll();
-        AddBlendShape(container);
-        BuildBillboard(container);
+        
+        try 
+        {
 
-        var textures = TextureExporter.ExportAllTexture(Path.GetDirectoryName(path), container.gameObject);
-        var model = ReadPMXModel(container, textures, container.CharaEntry);
+            AddBlendShape(container);
+            BuildBillboard(container);
 
-        FileStream fileStream = new FileStream(path, FileMode.Create);
-        BinaryWriter writer = new BinaryWriter(fileStream);
-        var config = new ModelConfig() { GlobalToonPath = "Toon" };
-        PMXWriter.Write(writer, model, config);
+            var textures = TextureExporter.ExportAllTexture(Path.GetDirectoryName(path), container.gameObject);
+            var model = ReadPMXModel(container, textures, container.CharaEntry);
 
-        writer.Close();
-        fileStream.Close();
+            FileStream fileStream = new FileStream(path, FileMode.Create);
+            BinaryWriter writer = new BinaryWriter(fileStream);
+            var config = new ModelConfig() { GlobalToonPath = "Toon" };
+            PMXWriter.Write(writer, model, config);
 
-        RemoveBillboard(container);
-        ClearBlendShape(container);
+            writer.Close();
+            fileStream.Close();
+        }
+        finally
+        {
+            RemoveBillboard(container);
+            ClearBlendShape(container);
+        }
+
         UmaViewerUI.Instance.ShowMessage($"PMX Save at {path}", UIMessageType.Success);
     }
 
@@ -85,13 +94,50 @@ public class ModelExporter
         {
             rootBone = container.transform;
         }
-        List<Transform> bones = new List<Transform>(rootBone.GetComponentsInChildren<Transform>());
-        bones.RemoveAll(o => o.name.Contains("Col_"));
+        List<Transform> allBones = new List<Transform>(rootBone.GetComponentsInChildren<Transform>());
+        allBones.RemoveAll(o => o.name.Contains("Col_"));
+
+        // Filter bones for export
+        List<Transform> exportBones = new List<Transform>();
+        foreach(var bone in allBones)
+        {
+            bool isKeep = true;
+            string bName = bone.name;
+
+            // Keep Eyes
+            if(bName == "Eye_L" || bName == "Eye_R")
+            {
+                isKeep = true;
+            }
+            // Filter Facial details
+            else if (bName.StartsWith("Facial_") || 
+                     bName.StartsWith("Lip_") || 
+                     // bName.StartsWith("Jaw") || // Keep Jaw 
+                     // bName.Equals("Chin") ||       // Keep Chin (Explicitly check if it was being filtered, though it usually isn't unless under Facial)
+                     bName.StartsWith("Mouth_") || 
+                     // bName.StartsWith("Tongue_") || // Keep Tongue
+                     bName.StartsWith("Tooth_") ||
+                     bName.StartsWith("Cheek") ||
+                     bName.StartsWith("Eyelid") ||
+                     // [Fix] Remove extra Eye bones (e.g. Eye_High_L) to prevent double transformation/flying artifacts
+                     (bName.StartsWith("Eye_") && bName != "Eye_L" && bName != "Eye_R") ||
+                     bName.StartsWith("Nose") ||
+                     bName.StartsWith("Ear"))
+            {
+                isKeep = false;
+            }
+
+            if(isKeep)
+            {
+                exportBones.Add(bone);
+            }
+        }
 
         //Read vertices And triangles
         List<Renderer> renderers = new List<Renderer>(container.GetComponentsInChildren<Renderer>());
         List<int> triangles = new List<int>();
-        model.Vertices = ReadVerticesAndTriangles(renderers, bones, ref triangles, container.transform);
+        // Pass exportBones to ReadVerticesAndTriangles so it knows valid bones
+        model.Vertices = ReadVerticesAndTriangles(renderers, exportBones, ref triangles, container.transform);
         model.TriangleIndexes = triangles.ToArray();
 
         //Read Texture reference
@@ -101,7 +147,12 @@ public class ModelExporter
         }
 
         model.Parts = ReadPartMaterials(renderers, model);
-        model.Bones = ReadBones(bones);
+        model.Bones = ReadBones(exportBones);
+        if(container is UmaContainerCharacter chara)
+        {
+            ClearBlendShape(chara);
+            AddBlendShape(chara);
+        }
         model.Morphs = ReadMorph(renderers);
         model.Rigidbodies = new MMDRigidBody[0];
         model.Joints = new MMDJoint[0];
@@ -135,11 +186,16 @@ public class ModelExporter
         SkinnedMeshRenderer faceMesh = null;
         SkinnedMeshRenderer eyebrowMesh = null;
         SkinnedMeshRenderer earMesh = null;
+        SkinnedMeshRenderer mouthMesh = null; // New
+        SkinnedMeshRenderer eyeMesh = null;   // New
+
         foreach (SkinnedMeshRenderer s in container.GetComponentsInChildren<SkinnedMeshRenderer>())
         {
             if (s.name.Equals("M_Face")) faceMesh = s;
             else if (s.name.Equals("M_Mayu")) eyebrowMesh = s;
             else if (s.name.Equals("M_Hair")) earMesh = s;
+            else if (s.name.Equals("M_Mouth")) mouthMesh = s; // New
+            else if (s.name.Equals("M_Eye")) eyeMesh = s;     // New
         }
 
         var facial = container.FaceDrivenKeyTarget;
@@ -149,15 +205,26 @@ public class ModelExporter
             foreach (var morph in morphs)
             {
                 facial.ClearAllWeights();
-                morph.weight = 1;
+                // [Fix] Reset weight to 1 (User request: 10x was too strong)
+                morph.weight = 1; 
                 facial.ChangeMorph();
 
                 Mesh deltaMesh = new Mesh();
                 skin.BakeMesh(deltaMesh);
-                skin.sharedMesh.AddBlendShapeFrame( $"{morph.name}({morph.tag})[{skin.name}]", 1,
-                        CalDelta(baseMesh.vertices, deltaMesh.vertices),
-                        CalDelta(baseMesh.normals, deltaMesh.normals),
-                        CalDelta(Vec4ToVec3(baseMesh.tangents), Vec4ToVec3(deltaMesh.tangents)));
+
+            // [Fix] Truncate name to 15 bytes (Shift-JIS) to match VMD limit
+            string validName = TruncateToShiftJIS(morph.name, 15);
+
+            // [Fix] Check duplicate using truncated name
+            if (skin.sharedMesh.GetBlendShapeIndex(validName) == -1)
+            {
+                // [Fix] Use weight 100.0f (Standard Unity Full Weight)
+                // Previous value 1.0f meant "This delta is for 1% weight", causing MMD (100%) to explode the mesh 100x.
+                skin.sharedMesh.AddBlendShapeFrame(validName, 100.0f,
+                    CalDelta(baseMesh.vertices, deltaMesh.vertices),
+                    CalDelta(baseMesh.normals, deltaMesh.normals),
+                    CalDelta(Vec4ToVec3(baseMesh.tangents), Vec4ToVec3(deltaMesh.tangents)));
+                }
             }
         };
 
@@ -183,6 +250,22 @@ public class ModelExporter
             earMesh.BakeMesh(baseEarMesh);
             addBlendShapePart(earMesh, facial.EarMorphs, baseEarMesh);
         }
+
+        // [New] Process Mouth Mesh
+        if (mouthMesh)
+        {
+            Mesh baseMouthMesh = new Mesh();
+            mouthMesh.BakeMesh(baseMouthMesh);
+            addBlendShapePart(mouthMesh, facial.MouthMorphs, baseMouthMesh);
+        }
+
+        // [New] Process Eye Mesh
+        if (eyeMesh)
+        {
+            Mesh baseEyeMesh = new Mesh();
+            eyeMesh.BakeMesh(baseEyeMesh);
+            addBlendShapePart(eyeMesh, facial.EyeMorphs, baseEyeMesh);
+        }
             
         facial.ClearAllWeights();
         facial.ChangeMorph();
@@ -201,10 +284,19 @@ public class ModelExporter
         }
     }
 
+    private static string TruncateToShiftJIS(string s, int maxBytes)
+    {
+        var encoding = System.Text.Encoding.GetEncoding("shift_jis");
+        byte[] bytes = encoding.GetBytes(s);
+        if (bytes.Length <= maxBytes) return s;
+        return encoding.GetString(bytes, 0, maxBytes);
+    }
+
     private static Morph[] ReadMorph(List<Renderer> renderers)
     {
-        List<Morph> morphs = new List<Morph>();
+        Dictionary<string, List<VertexMorphData>> mergedMorphData = new Dictionary<string, List<VertexMorphData>>();
         int vertexOffset = 0;
+
         foreach (Renderer renderer in renderers)
         {
             Mesh mesh;
@@ -219,58 +311,292 @@ public class ModelExporter
             }
             var vertexCount = mesh.vertexCount;
 
-            for (int i = 0; i < mesh.blendShapeCount; i++) 
+            for (int i = 0; i < mesh.blendShapeCount; i++)
             {
+                string morphName = mesh.GetBlendShapeName(i);
+                
+                if (!mergedMorphData.ContainsKey(morphName))
+                {
+                    mergedMorphData[morphName] = new List<VertexMorphData>();
+                }
+
                 var deltaVertices = new Vector3[vertexCount];
                 var deltaNormals = new Vector3[vertexCount];
-                var deltaTangents= new Vector3[vertexCount];
+                var deltaTangents = new Vector3[vertexCount];
                 mesh.GetBlendShapeFrameVertices(i, 0, deltaVertices, deltaNormals, deltaTangents);
 
-                Morph morph = new Morph();
-                morph.Name = morph.NameEn = mesh.GetBlendShapeName(i);
-                morph.Type = MorphType.MorphTypeVertex;
-                var datas = new VertexMorphData[vertexCount];
-                for (int j = 0; j < vertexCount; j++) 
+                for (int j = 0; j < vertexCount; j++)
                 {
-                    var data = new VertexMorphData();
-                    data.VertexIndex = vertexOffset + j;
-                    data.Offset = deltaVertices[j];
-                    datas[j] = data;
+                    // Optimization: Only include vertices that actually move
+                    if (deltaVertices[j].sqrMagnitude > 0.000001f)
+                    {
+                        var data = new VertexMorphData();
+                        data.VertexIndex = vertexOffset + j;
+                        data.Offset = deltaVertices[j];
+                        mergedMorphData[morphName].Add(data);
+                    }
                 }
-                morph.MorphDatas = datas;
-
-                if (morph.Name.Contains("Mouth_"))
-                {
-                    morph.Category = MorphCategory.MorphCatMouth;
-                }
-                else if(morph.Name.Contains("EyeBrow_"))
-                {
-                    morph.Category = MorphCategory.MorphCatEyebrow;
-                }
-                else if(morph.Name.Contains("Eye_"))
-                {
-                    morph.Category = MorphCategory.MorphCatEye;
-                }
-                else 
-                {
-                    morph.Category = MorphCategory.MorphCatOther;
-                }
-
-                morphs.Add(morph);
             }
-
-            vertexOffset += mesh.vertexCount;
+            vertexOffset += vertexCount;
         }
-        return morphs.ToArray();
+
+        List<Morph> finalMorphs = new List<Morph>();
+
+        // Accumulator for MMD Mapped Morphs (e.g. "まばたき" will collect vertices from "Eye_L" and "Eye_R")
+        Dictionary<string, List<VertexMorphData>> mmdMorphData = new Dictionary<string, List<VertexMorphData>>();
+
+        foreach (var kvp in mergedMorphData)
+        {
+            string rawName = kvp.Key;
+
+            // 1. Create Unity Original Morph (Always keep original)
+            Morph morph = CreateMorph(rawName, rawName, kvp.Value);
+            finalMorphs.Add(morph);
+
+            // 2. Check for Mapping to MMD
+            string mmdName = GetMappedMMDName(rawName);
+            if (!string.IsNullOrEmpty(mmdName))
+            {
+                if (!mmdMorphData.ContainsKey(mmdName))
+                {
+                    mmdMorphData[mmdName] = new List<VertexMorphData>();
+                }
+                // Merge vertices (Union of deltas)
+                mmdMorphData[mmdName].AddRange(kvp.Value);
+            }
+        }
+
+        // 3. Create MMD Mapped Morphs
+        foreach (var kvp in mmdMorphData)
+        {
+            Morph mmdMorph = CreateMorph(kvp.Key, kvp.Key, kvp.Value);
+            finalMorphs.Add(mmdMorph);
+        }
+
+        return finalMorphs.ToArray();
     }
+
+    private static Morph CreateMorph(string name, string nameEn, List<VertexMorphData> datas)
+    {
+        Morph morph = new Morph();
+        morph.Name = name;
+        morph.NameEn = nameEn;
+        morph.Type = MorphType.MorphTypeVertex;
+        morph.MorphDatas = datas.ToArray();
+
+        // Categorize based on Name content (Simple heuristic)
+        if (morph.NameEn.Contains("Mouth") || morph.Name.Contains("口") || morph.NameEn.Contains("Lip"))
+        {
+            morph.Category = MorphCategory.MorphCatMouth;
+        }
+        else if (morph.NameEn.Contains("EyeBrow") || morph.Name.Contains("眉"))
+        {
+            morph.Category = MorphCategory.MorphCatEyebrow;
+        }
+        else if (morph.NameEn.Contains("Eye") || morph.Name.Contains("目") || morph.Name.Contains("まばたき"))
+        {
+            morph.Category = MorphCategory.MorphCatEye;
+        }
+        else
+        {
+            morph.Category = MorphCategory.MorphCatOther;
+        }
+        return morph;
+    }
+
+    private static string GetMappedMMDName(string rawName)
+    {
+        // 1. Direct Mapping
+        if (MorphNameMapping.TryGetValue(rawName, out string mapped)) return mapped;
+
+        // 2. Parse Unity Patterns (e.g. Eye_2_L -> Eye_CloseA -> まばたき)
+        
+        // Eyes: Eye_{id}_{L/R}
+        if (rawName.StartsWith("Eye_"))
+        {
+             var parts = rawName.Split('_');
+             if (parts.Length >= 2 && int.TryParse(parts[1], out int id))
+             {
+                 if (Enum.IsDefined(typeof(Gallop.Live.Cutt.LiveTimelineDefine.FacialEyeId), id))
+                 {
+                     string tag = Enum.GetName(typeof(Gallop.Live.Cutt.LiveTimelineDefine.FacialEyeId), id);
+                     string key = "Eye_" + tag; // e.g. "Eye_CloseA"
+                     if (MorphNameMapping.TryGetValue(key, out string mmdName)) return mmdName;
+                 }
+             }
+        }
+        // Eyebrows: EyeBrow_{id}_{L/R}
+        else if (rawName.StartsWith("EyeBrow_"))
+        {
+             var parts = rawName.Split('_');
+             if (parts.Length >= 2 && int.TryParse(parts[1], out int id))
+             {
+                 if (Enum.IsDefined(typeof(Gallop.Live.Cutt.LiveTimelineDefine.FacialEyebrowId), id))
+                 {
+                     string tag = Enum.GetName(typeof(Gallop.Live.Cutt.LiveTimelineDefine.FacialEyebrowId), id);
+                     string key = "EyeBrow_" + tag;
+                     if (MorphNameMapping.TryGetValue(key, out string mmdName)) return mmdName;
+                 }
+             }
+        }
+        // Mouth: Mouth_{id}_{index}
+        else if (rawName.StartsWith("Mouth_"))
+        {
+             var parts = rawName.Split('_');
+             if (parts.Length >= 2 && int.TryParse(parts[1], out int id))
+             {
+                 if (Enum.IsDefined(typeof(Gallop.Live.Cutt.LiveTimelineDefine.FacialMouthId), id))
+                 {
+                     string tag = Enum.GetName(typeof(Gallop.Live.Cutt.LiveTimelineDefine.FacialMouthId), id);
+                     string key = "Mouth_" + tag; // e.g. "Mouth_WaraiA"
+                     
+                     if (MorphNameMapping.TryGetValue(key, out string mmdName)) return mmdName;
+                     
+                     // Fallback for Mouth which sometimes had "Mouth" prefix in mapping keys or direct names?
+                     // Existing mapping has keys like "Mouth_WaraiA". So "Mouth_" + tag is correct.
+                     
+                     // Check for specialized suffix matches if needed, but for now tag matching is safer
+                 }
+             }
+        }
+
+        return null;
+    }
+
+    // UmaViewer Morph Name -> MMD Standard Name Mapping
+    private static readonly Dictionary<string, string> MorphNameMapping = new Dictionary<string, string>()
+    {
+        // Eyes
+        { "Eye_CloseA", "まばたき" }, // Blink
+        { "Eye_WaraiA", "笑い" },     // Smile
+        { "Eye_HalfA", "じと目" },    // Half-closed
+        { "Eye_OdorokiA", "びっくり" }, // Surprised
+        { "Eye_KomariA", "困る" },      // Troubled
+        { "Eye_IkariA", "怒り" },       // Angry
+
+        // Mouth - Vowels
+        { "Mouth_TalkA_A_L", "あ" },
+        { "Mouth_TalkA_I_L", "い" },
+        { "Mouth_TalkA_U_L", "う" },
+        { "Mouth_TalkA_E_L", "え" },
+        { "Mouth_TalkA_O_L", "お" },
+        
+        { "Mouth_TalkA_A_S", "あ2" }, // Smaller versions?
+        { "Mouth_TalkA_I_S", "い2" },
+        { "Mouth_TalkA_U_S", "う2" },
+        { "Mouth_TalkA_E_S", "え2" },
+        { "Mouth_TalkA_O_S", "お2" },
+
+        // Mouth - Expressions
+        { "Mouth_WaraiA", "笑い" },
+        { "Mouth_IkariA", "怒り" },
+        { "Mouth_KomariA", "困る" },
+        { "Mouth_UreiA", "▲" }, // Triangle mouth?
+        { "Mouth_OdorokiA", "□" }, // Box mouth?
+    };
+
+    // Unity骨骼名 → MMD日文名の映射字典
+    // 与VMD导出时的骨骼名称完全对应（UseCenterAsParentOfAll=true时的默认映射）
+    private static readonly Dictionary<string, string> BoneNameMapping = new Dictionary<string, string>()
+    {
+        // 根骨骼和躯干（Position→センター, Hip→グルーブ 与VMD默认导出一致）
+        { "Position", "センター" },
+        { "Hip", "グルーブ" },
+        { "Spine", "上半身" },
+        { "Chest", "上半身2" },
+        { "Neck", "首" },
+        { "Head", "頭" },
+        // 左肩・腕
+        { "Shoulder_L", "左肩" },
+        { "Arm_L", "左腕" },
+        { "Elbow_L", "左ひじ" },
+        { "Wrist_L", "左手首" },
+        // 右肩・腕
+        { "Shoulder_R", "右肩" },
+        { "Arm_R", "右腕" },
+        { "Elbow_R", "右ひじ" },
+        { "Wrist_R", "右手首" },
+        // 左手指
+        { "Thumb_01_L", "左親指０" },
+        { "Thumb_02_L", "左親指１" },
+        { "Thumb_03_L", "左親指２" },
+        { "Index_01_L", "左人指１" },
+        { "Index_02_L", "左人指２" },
+        { "Index_03_L", "左人指３" },
+        { "Middle_01_L", "左中指１" },
+        { "Middle_02_L", "左中指２" },
+        { "Middle_03_L", "左中指３" },
+        { "Ring_01_L", "左薬指１" },
+        { "Ring_02_L", "左薬指２" },
+        { "Ring_03_L", "左薬指３" },
+        { "Pinky_01_L", "左小指１" },
+        { "Pinky_02_L", "左小指２" },
+        { "Pinky_03_L", "左小指３" },
+        // 右手指
+        { "Thumb_01_R", "右親指０" },
+        { "Thumb_02_R", "右親指１" },
+        { "Thumb_03_R", "右親指２" },
+        { "Index_01_R", "右人指１" },
+        { "Index_02_R", "右人指２" },
+        { "Index_03_R", "右人指３" },
+        { "Middle_01_R", "右中指１" },
+        { "Middle_02_R", "右中指２" },
+        { "Middle_03_R", "右中指３" },
+        { "Ring_01_R", "右薬指１" },
+        { "Ring_02_R", "右薬指２" },
+        { "Ring_03_R", "右薬指３" },
+        { "Pinky_01_R", "右小指１" },
+        { "Pinky_02_R", "右小指２" },
+        { "Pinky_03_R", "右小指３" },
+        // 左足
+        { "Thigh_L", "左足" },
+        { "Knee_L", "左ひざ" },
+        { "Ankle_L", "左足首" },
+        { "Toe_L", "左足先EX" },
+        // 右足
+        { "Thigh_R", "右足" },
+        { "Knee_R", "右ひざ" },
+        { "Ankle_R", "右足首" },
+        { "Toe_R", "右足先EX" },
+        // 目
+        { "Eye_L", "左目" },
+        { "Eye_R", "右目" },
+        // 耳・口
+        { "Ear_01_L", "左耳" },
+        { "Ear_02_L", "左耳1" },
+        { "Ear_03_L", "左耳2" },
+        { "Ear_01_R", "右耳" },
+        { "Ear_02_R", "右耳1" },
+        { "Ear_03_R", "右耳2" },
+        { "Mouth", "口" },
+        { "Jaw", "顎" },
+    };
 
     private static Bone[] ReadBones(List<Transform> bonelist)
     {
         List<Bone> pmxbones = new List<Bone>();
-        foreach (var bone in bonelist)
+
+        // 记录特殊骨骼索引，用于后续添加「下半身」虚拟骨骼
+        int hipIndex = -1;
+        int leftThighIndex = -1;
+        int rightThighIndex = -1;
+
+        for (int i = 0; i < bonelist.Count; i++)
         {
+            var bone = bonelist[i];
             Bone pmxbone = new Bone();
-            pmxbone.Name = pmxbone.NameEn = bone.name;
+
+            // 应用骨骼名称映射：Unity英文名 → MMD日文名
+            if (BoneNameMapping.TryGetValue(bone.name, out string mappedName))
+            {
+                pmxbone.Name = mappedName;        // 日文名（MMD主名称）
+                pmxbone.NameEn = bone.name;       // 英文名（保留原始名称）
+            }
+            else
+            {
+                pmxbone.Name = pmxbone.NameEn = bone.name;
+            }
+
             pmxbone.Position = bone.position;
             pmxbone.ParentIndex = bonelist.IndexOf(bone.parent);
             pmxbone.TransformLevel = 0;
@@ -284,7 +610,84 @@ public class ModelExporter
                 Index = (bone.childCount > 0 ? bonelist.IndexOf(bone.GetChild(0)) : -1)
             };
             pmxbones.Add(pmxbone);
+
+            // 记录关键骨骼索引
+            if (bone.name == "Hip") hipIndex = i;
+            if (bone.name == "Thigh_L") leftThighIndex = i;
+            if (bone.name == "Thigh_R") rightThighIndex = i;
         }
+
+        // [Fix] Enforce Chin -> Tongue -> Tongue_Out chain
+        // User requested explicit structure optimization: Chin -> Tongue -> Tongue_Out_01 -> Tongue_Out_02
+        
+        int chinIndex = pmxbones.FindIndex(b => b.NameEn == "Chin");
+        if (chinIndex == -1) chinIndex = pmxbones.FindIndex(b => b.NameEn.StartsWith("Jaw"));
+
+        if (chinIndex >= 0)
+        {
+            // 1. Link Root "Tongue" to Chin
+            int tongueIndex = pmxbones.FindIndex(b => b.NameEn == "Tongue");
+            if (tongueIndex >= 0)
+            {
+                pmxbones[tongueIndex].ParentIndex = chinIndex;
+
+                // 2. Link "Tongue_Out_01" to "Tongue"
+                int tongueOut01Index = pmxbones.FindIndex(b => b.NameEn == "Tongue_Out_01");
+                if (tongueOut01Index >= 0)
+                {
+                    pmxbones[tongueOut01Index].ParentIndex = tongueIndex;
+
+                    // 3. Link "Tongue_Out_02" to "Tongue_Out_01"
+                    int tongueOut02Index = pmxbones.FindIndex(b => b.NameEn == "Tongue_Out_02");
+                    if (tongueOut02Index >= 0)
+                    {
+                        pmxbones[tongueOut02Index].ParentIndex = tongueOut01Index;
+                    }
+                }
+            }
+            else
+            {
+                // Fallback: If no single "Tongue" bone, try to find "Tongue_01" or similar valid roots
+                for (int i = 0; i < pmxbones.Count; i++)
+                {
+                   if (pmxbones[i].NameEn.StartsWith("Tongue") && !pmxbones[i].NameEn.Contains("Out"))
+                   {
+                        // Treat as root tongue
+                        pmxbones[i].ParentIndex = chinIndex;
+                   }
+                }
+            }
+        }
+
+        // 添加「下半身」虚拟骨骼 — MMD标准骨骼中必须存在
+        // Uma模型没有独立的下半身骨骼，此骨骼位于Hip位置，作为大腿的父骨骼
+        if (hipIndex >= 0)
+        {
+            int lowerBodyIndex = pmxbones.Count;
+            Bone lowerBody = new Bone();
+            lowerBody.Name = "下半身";
+            lowerBody.NameEn = "LowerBody";
+            lowerBody.Position = pmxbones[hipIndex].Position; // 与グルーブ同位置
+            lowerBody.ParentIndex = hipIndex;                  // 父骨骼为グルーブ(Hip)
+            lowerBody.TransformLevel = 0;
+            lowerBody.Visible = true;
+            lowerBody.Movable = true;
+            lowerBody.Rotatable = true;
+            lowerBody.Controllable = true;
+            lowerBody.ChildBoneVal = new Bone.ChildBone()
+            {
+                ChildUseId = true,
+                Index = leftThighIndex >= 0 ? leftThighIndex : -1
+            };
+            pmxbones.Add(lowerBody);
+
+            // 将左右大腿的父骨骼从グルーブ(Hip)改为下半身
+            if (leftThighIndex >= 0)
+                pmxbones[leftThighIndex].ParentIndex = lowerBodyIndex;
+            if (rightThighIndex >= 0)
+                pmxbones[rightThighIndex].ParentIndex = lowerBodyIndex;
+        }
+
         return pmxbones.ToArray();
     }
 
@@ -512,7 +915,26 @@ public class ModelExporter
 
     private static int GetBoneIndex(List<Transform> bones, Transform bone)
     {
-        return bones.Contains(bone) ? bones.IndexOf(bone) : 0;
+        // Check if bone is in the list
+        if (bones.Contains(bone))
+        {
+            return bones.IndexOf(bone);
+        }
+        
+        // If not found (e.g. filtered out), try to find a parent that IS in the list
+        // This ensures weights are transferred to the parent (e.g. Head) instead of Root
+        Transform current = bone.parent;
+        while (current != null)
+        {
+            if (bones.Contains(current))
+            {
+                return bones.IndexOf(current);
+            }
+            current = current.parent;
+        }
+
+        // Fallback to 0 (Root) if no parent found
+        return 0;
     }
 
     /// <summary> Credit to pohype: https://discussions.unity.com/t/reading-meshes-at-runtime-that-are-not-enabled-for-read-write/804189/7 </summary>

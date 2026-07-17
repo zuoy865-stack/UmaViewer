@@ -7,7 +7,7 @@ using UnityEngine;
 
 public class Config
 {
-    public static string configPath = Application.dataPath + "/../Config.json";
+    public static string configPath = GetConfigPath();
     public static Config Instance;
     public string Version = "";
 
@@ -23,7 +23,7 @@ public class Config
     public string ABKeyTip = "Key to read asset bundles";
     public string ABKeyText;
 
-    public string LanguageTip = "Affects Uma names on the list. Language options: 0 - En, 1 - Jp";
+    public string LanguageTip = "Affects Uma names on the list. Language options: 0 - En, 1 - Jp, 2 - Simplified Chinese";
     public Language Language = Language.En;
 
     public string RegionTip = "Game region. Region options: 0 - Global, 1 - Japan";
@@ -43,6 +43,9 @@ public class Config
 
     public string AntiAliasingTip = "Display, screenshot antialiasing level. 0 - no AA, 1 - 2x MSAA, 2 - 4x MSAA, 3 - 8x MSAA";
     public int AntiAliasing = 2;
+
+    public string TargetFrameRateTip = "Limits application frame rate. Available values: 60, 30";
+    public int TargetFrameRate = 60;
 
     public bool RegionDetectionPassed = false;
 
@@ -129,7 +132,12 @@ public class Config
     [NonSerialized]
     public byte[] GlobalDBKey = new byte[]
     {
-            0x56, 0x63, 0x6B, 0x63, 0x42, 0x72, 0x37, 0x76, 0x65, 0x70, 0x41, 0x62,
+        0x36, 0x23, 0x6b, 0x4c, 0x2a, 0x39,
+        0x21, 0x75, 0x52, 0x26, 0x32, 0x76,
+        0x25, 0x50, 0x3f, 0x35, 0x5d, 0x77,
+        0x58, 0x6d, 0x40, 0x71, 0x38, 0x5e,
+        0x4c, 0x31, 0x28, 0x74, 0x29, 0x59,
+        0x37, 0x24, 0x53
     };
 
     [NonSerialized]
@@ -141,6 +149,7 @@ public class Config
 
     public Config()
     {
+        configPath = GetConfigPath();
         Version = Application.version;
 
         MainPath = $@"{Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) + "Low"}\Cygames\umamusume";
@@ -201,7 +210,14 @@ public class Config
             }
             catch (Exception ex)
             {
-                UmaViewerUI.Instance.ShowMessage("Config load error. Using default. " + ex.Message, UIMessageType.Error);
+                if (UmaViewerUI.Instance != null)
+                {
+                    UmaViewerUI.Instance.ShowMessage("Config load error. Using default. " + ex.Message, UIMessageType.Error);
+                }
+                else
+                {
+                    Debug.LogError("Config load error. Using default. " + ex.Message);
+                }
                 MainPath = $@"{Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) + "Low"}\Cygames\umamusume";
             }
         }
@@ -213,8 +229,22 @@ public class Config
         File.WriteAllText(configPath, JsonUtility.ToJson(this, true));
         if (requireRestart)
         {
-            UmaViewerUI.Instance.ShowMessage("The configuration has changed. Please restart the application.", UIMessageType.Default);
+            UmaViewerUI.Instance?.ShowMessage("The configuration has changed. Please restart the application.", UIMessageType.Default);
         }
+    }
+
+    public int GetTargetFrameRate()
+    {
+        return TargetFrameRate == 30 ? 30 : 60;
+    }
+
+    private static string GetConfigPath()
+    {
+        if (Application.isMobilePlatform)
+        {
+            return Path.Combine(Application.persistentDataPath, "Config.json");
+        }
+        return Application.dataPath + "/../Config.json";
     }
 
     private string ByteArrayToHex(byte[] byteArray)
@@ -246,8 +276,9 @@ public class Config
 
 public enum Language
 {
-    En,
-    Jp
+    En = 0,
+    Jp = 1,
+    Cn = 2
 }
 
 public enum Region
