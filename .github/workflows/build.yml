@@ -27,6 +27,25 @@ jobs:
     timeout-minutes: 120
 
     steps:
+      - name: Verify Unity license secrets
+        shell: pwsh
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        run: |
+          $missing = @()
+          if ([string]::IsNullOrWhiteSpace($env:UNITY_LICENSE) -and [string]::IsNullOrWhiteSpace($env:UNITY_SERIAL)) {
+            $missing += "UNITY_LICENSE or UNITY_SERIAL"
+          }
+          if ([string]::IsNullOrWhiteSpace($env:UNITY_EMAIL)) { $missing += "UNITY_EMAIL" }
+          if ([string]::IsNullOrWhiteSpace($env:UNITY_PASSWORD)) { $missing += "UNITY_PASSWORD" }
+          if ($missing.Count -gt 0) {
+            Write-Error "Missing repository secrets: $($missing -join ', '). See .github/UNITY_LICENSE_SETUP.md."
+            exit 1
+          }
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -45,6 +64,7 @@ jobs:
         uses: game-ci/unity-builder@v4
         env:
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         with:
