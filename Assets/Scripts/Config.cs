@@ -7,7 +7,7 @@ using UnityEngine;
 
 public class Config
 {
-    public static string configPath = Application.dataPath + "/../Config.json";
+    public static string configPath = GetConfigPath();
     public static Config Instance;
     public string Version = "";
 
@@ -23,7 +23,7 @@ public class Config
     public string ABKeyTip = "Key to read asset bundles";
     public string ABKeyText;
 
-    public string LanguageTip = "Affects Uma names on the list. Language options: 0 - En, 1 - Jp";
+    public string LanguageTip = "Affects Uma names on the list. Language options: 0 - En, 1 - Jp, 2 - Simplified Chinese";
     public Language Language = Language.En;
 
     public string RegionTip = "Game region. Region options: 0 - Global, 1 - Japan";
@@ -43,6 +43,9 @@ public class Config
 
     public string AntiAliasingTip = "Display, screenshot antialiasing level. 0 - no AA, 1 - 2x MSAA, 2 - 4x MSAA, 3 - 8x MSAA";
     public int AntiAliasing = 2;
+
+    public string TargetFrameRateTip = "Limits application frame rate. Available values: 60, 30";
+    public int TargetFrameRate = 60;
 
     public bool RegionDetectionPassed = false;
 
@@ -146,6 +149,7 @@ public class Config
 
     public Config()
     {
+        configPath = GetConfigPath();
         Version = Application.version;
 
         MainPath = $@"{Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) + "Low"}\Cygames\umamusume";
@@ -206,7 +210,14 @@ public class Config
             }
             catch (Exception ex)
             {
-                UmaViewerUI.Instance.ShowMessage("Config load error. Using default. " + ex.Message, UIMessageType.Error);
+                if (UmaViewerUI.Instance != null)
+                {
+                    UmaViewerUI.Instance.ShowMessage("Config load error. Using default. " + ex.Message, UIMessageType.Error);
+                }
+                else
+                {
+                    Debug.LogError("Config load error. Using default. " + ex.Message);
+                }
                 MainPath = $@"{Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) + "Low"}\Cygames\umamusume";
             }
         }
@@ -218,8 +229,22 @@ public class Config
         File.WriteAllText(configPath, JsonUtility.ToJson(this, true));
         if (requireRestart)
         {
-            UmaViewerUI.Instance.ShowMessage("The configuration has changed. Please restart the application.", UIMessageType.Default);
+            UmaViewerUI.Instance?.ShowMessage("The configuration has changed. Please restart the application.", UIMessageType.Default);
         }
+    }
+
+    public int GetTargetFrameRate()
+    {
+        return TargetFrameRate == 30 ? 30 : 60;
+    }
+
+    private static string GetConfigPath()
+    {
+        if (Application.isMobilePlatform)
+        {
+            return Path.Combine(Application.persistentDataPath, "Config.json");
+        }
+        return Application.dataPath + "/../Config.json";
     }
 
     private string ByteArrayToHex(byte[] byteArray)
@@ -251,8 +276,9 @@ public class Config
 
 public enum Language
 {
-    En,
-    Jp
+    En = 0,
+    Jp = 1,
+    Cn = 2
 }
 
 public enum Region

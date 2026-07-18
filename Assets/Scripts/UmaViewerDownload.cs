@@ -13,13 +13,19 @@ public class UmaViewerDownload : MonoBehaviour
 {
     public static string MANIFEST_ROOT_URL = "https://prd-storage-app-umamusume.akamaized.net/dl/resources/Manifest";
     public static string GENERIC_BASE_URL = "https://prd-storage-game-umamusume.akamaized.net/dl/resources/Generic";
-#if UNITY_ANDROID && !UNITY_EDITOR
+#if UNITY_IOS || UNITY_IPHONE || UNITY_STANDALONE_OSX || UNITY_EDITOR_OSX
+    public static string ASSET_BASE_URL = "https://prd-storage-game-umamusume.akamaized.net/dl/resources/iOS/assetbundles/";
+#elif UNITY_ANDROID
     public static string ASSET_BASE_URL = "https://prd-storage-game-umamusume.akamaized.net/dl/resources/Android/assetbundles/";
 #else
     public static string ASSET_BASE_URL = "https://prd-storage-game-umamusume.akamaized.net/dl/resources/Windows/assetbundles/";
 #endif
 
+#if UNITY_ANDROID || UNITY_IOS || UNITY_IPHONE
+    private const int maxConcurrentDownloads = 6;
+#else
     private const int maxConcurrentDownloads = 30;
+#endif
     private static SemaphoreSlim semaphore = new SemaphoreSlim(maxConcurrentDownloads);
     private static List<Coroutine> downloadCoroutines = new List<Coroutine>();
     private static int CurrentCoroutinesCount = 0;
@@ -59,8 +65,7 @@ public class UmaViewerDownload : MonoBehaviour
         else
         {
             Debug.Log("saving " + entry.Url);
-            Directory.CreateDirectory(Path.GetDirectoryName(entry.Path));
-            File.WriteAllBytes(entry.Path, www.downloadHandler.data);
+            SaveDownloadedAsset(entry, www.downloadHandler.data);
         }
     }
   
@@ -79,7 +84,6 @@ public class UmaViewerDownload : MonoBehaviour
                 callback?.Invoke(i, entries.Count, "DownLoading");
             }
             CurrentCoroutinesCount++;
-            semaphore.WaitAsync();
             downloadCoroutines.Add(Instance.StartCoroutine(DownloadTask(entry)));
         }
 
@@ -101,8 +105,7 @@ public class UmaViewerDownload : MonoBehaviour
             }
             else
             {
-                Directory.CreateDirectory(Path.GetDirectoryName(entry.Path));
-                File.WriteAllBytes(entry.Path, www.downloadHandler.data);
+                SaveDownloadedAsset(entry, www.downloadHandler.data);
             }
         }
         CurrentCoroutinesCount--;
@@ -134,11 +137,41 @@ public class UmaViewerDownload : MonoBehaviour
             else
             {
                 Debug.Log("saving " + entry.Url);
-                Directory.CreateDirectory(Path.GetDirectoryName(entry.Path));
-                File.WriteAllBytes(entry.Path, www.downloadHandler.data);
+                SaveDownloadedAsset(entry, www.downloadHandler.data);
             }
         }   
         semaphore.Release();
+    }
+
+    private static void SaveDownloadedAsset(UmaDatabaseEntry entry, byte[] data)
+    {
+        var directory = Path.GetDirectoryName(entry.Path);
+        if (!string.IsNullOrEmpty(directory))
+        {
+            Directory.CreateDirectory(directory);
+            MarkNoBackup(directory);
+        }
+
+        var tempPath = entry.Path + ".tmp";
+        if (File.Exists(tempPath))
+        {
+            File.Delete(tempPath);
+        }
+
+        File.WriteAllBytes(tempPath, data);
+        if (File.Exists(entry.Path))
+        {
+            File.Delete(entry.Path);
+        }
+        File.Move(tempPath, entry.Path);
+        MarkNoBackup(entry.Path);
+    }
+
+    private static void MarkNoBackup(string path)
+    {
+#if UNITY_IOS || UNITY_IPHONE
+        UnityEngine.iOS.Device.SetNoBackupFlag(path);
+#endif
     }
 
     public static string GetManifestRequestUrl(string hash)

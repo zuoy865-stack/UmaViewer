@@ -1,4 +1,11 @@
 # Uma Viewer (2)
+⚠️ If you see **"Failed to load il2cpp"** or the app cannot start on Windows, it may be blocked by **Windows Smart App Control**.
+
+ If it fails, turn off Smart App Control:
+
+   `Windows Security → App & browser control → Smart App Control settings → Off`
+
+This issue is caused by Windows blocking unsigned builds. The program should start normally after moving it to a local folder or disabling Smart App Control.
 
 Unity application that makes it easy to view assets from Uma Musume: Pretty Derby.
 

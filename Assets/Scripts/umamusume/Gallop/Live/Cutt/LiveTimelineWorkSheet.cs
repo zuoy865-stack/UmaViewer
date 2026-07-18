@@ -126,518 +126,32 @@ namespace Gallop.Live.Cutt
         CharacterUIColorSub = 4
     }
 
-    [System.Serializable]
-    public class LiveTimelineKeyDataListTemplate<T> : ILiveTimelineKeyDataList where T : LiveTimelineKey
-    {
-        [SerializeField]
-        private LiveTimelineKeyDataListAttr _attribute;
-
-        [SerializeField]
-        private TimelineKeyPlayMode _playMode;
-
-        [SerializeField]
-        private Color _baseColor;
-
-        [SerializeField]
-        private string _description;
-
-        public LiveTimelineKeyIndex thisTimeKeyIndex = new LiveTimelineKeyIndex();
-
-        public LiveTimelineKeyIndex TimeKeyIndex => thisTimeKeyIndex;
-
-        public List<T> thisList = new List<T>();
-
-        private int _lastFindIndex = -1;
-
-
-        public LiveTimelineKeyDataListAttr attribute
-        {
-            get
-            {
-                return _attribute;
-            }
-            set
-            {
-                _attribute = value;
-            }
-        }
-
-        public TimelineKeyPlayMode playMode
-        {
-            get
-            {
-                return _playMode;
-            }
-            set
-            {
-                _playMode = value;
-            }
-        }
-
-        public LiveTimelineKey this[int index]
-        {
-            get
-            {
-                return thisList[index];
-            }
-            set
-            {
-                thisList[index] = value as T;
-            }
-        }
-
-        public int Count => thisList.Count;
-
-        public int depthCounter => 0;
-
-        //TO DO -> binary search algorithm
-        public LiveTimelineKeyIndex FindCurrentKey(float currentTime)
-        {
-            if (thisList.Count > 0)
-            {
-                int ret = BinarySearchKey(0, thisList.Count - 1, currentTime);
-                if (ret == -1)
-                {
-                    return null;
-                }
-                thisTimeKeyIndex.index = ret;
-                thisTimeKeyIndex.key = thisList[ret];
-
-                if (ret + 1 != thisList.Count)
-                {
-                    thisTimeKeyIndex.nextKey = thisList[ret + 1];
-                }
-                else
-                {
-                    thisTimeKeyIndex.nextKey = null;
-                }
-                if (ret - 1 >= 0)
-                {
-                    thisTimeKeyIndex.prevKey = thisList[ret - 1];
-                }
-                else
-                {
-                    thisTimeKeyIndex.prevKey = null;
-                }
-                return thisTimeKeyIndex;
-            }
-
-            return null;
-        }
-
-        public int BinarySearchKey(int low, int high, float time)
-        {
-            float frame = time * 60;
-            int mid = (low + high) / 2;
-
-            if (high < 0)
-            {
-                return -1;
-            }
-            else if (low == high || (frame >= thisList[mid].frame && frame < thisList[mid + 1].frame))
-            {
-                return mid;
-            }
-            else
-            {
-                if (frame >= thisList[mid].frame)
-                {
-                    return BinarySearchKey(mid + 1, high, time);
-                }
-                else
-                {
-                    return BinarySearchKey(low, mid - 1, time);
-                }
-            }
-        }
-
-        public LiveTimelineKeyIndex FindCurrentKeyLinear(float currentTime)
-        {
-            for (int i = thisList.Count - 1; i >= 0; i--)
-            {
-                if (currentTime >= thisList[i].FrameSecond)
-                {
-                    thisTimeKeyIndex.index = i;
-                    thisTimeKeyIndex.key = thisList[i];
-                    if (i + 1 != thisList.Count)
-                    {
-                        thisTimeKeyIndex.nextKey = thisList[i + 1];
-                    }
-                    else
-                    {
-                        thisTimeKeyIndex.nextKey = null;
-                    }
-                    if (i - 1 >= 0)
-                    {
-                        thisTimeKeyIndex.prevKey = thisList[i - 1];
-                    }
-                    else
-                    {
-                        thisTimeKeyIndex.prevKey = null;
-                    }
-                    return thisTimeKeyIndex;
-                }
-            }
-
-            return null;
-        }
-
-        public LiveTimelineKeyIndex UpdateCurrentKey(float currentTime)
-        {
-            if (thisTimeKeyIndex.nextKey != null)
-            {
-                if (currentTime >= thisTimeKeyIndex.nextKey.FrameSecond)
-                {
-                    thisTimeKeyIndex.index++;
-                    thisTimeKeyIndex.key = thisList[thisTimeKeyIndex.index];
-                    if (thisTimeKeyIndex.index + 1 != thisList.Count)
-                    {
-                        thisTimeKeyIndex.nextKey = thisList[thisTimeKeyIndex.index + 1];
-                    }
-                    else
-                    {
-                        thisTimeKeyIndex.nextKey = null;
-                    }
-                    if (thisTimeKeyIndex.index - 1 >= 0)
-                    {
-                        thisTimeKeyIndex.prevKey = thisList[thisTimeKeyIndex.index - 1];
-                    }
-                    else
-                    {
-                        thisTimeKeyIndex.prevKey = null;
-                    }
-                }
-            }
-
-            return thisTimeKeyIndex;
-        }
-
-        public bool HasAttribute(LiveTimelineKeyDataListAttr attr)
-        {
-            return (attribute & attr) == attr;
-        }
-
-        public bool EnablePlayModeTimeline(TimelinePlayerMode playerMode)
-        {
-            return _playMode switch
-            {
-                TimelineKeyPlayMode.Always => true,
-                TimelineKeyPlayMode.LightOnly => playerMode == TimelinePlayerMode.Light,
-                TimelineKeyPlayMode.DefaultOver => playerMode != TimelinePlayerMode.Light,
-                _ => true,
-            };
-        }
-
-        public void Insert(int index, LiveTimelineKey item)
-        {
-            thisList.Insert(index, item as T);
-        }
-
-        public void Add(LiveTimelineKey item)
-        {
-            thisList.Add(item as T);
-        }
-
-        public void Clear()
-        {
-            thisList.Clear();
-        }
-
-        public bool Remove(LiveTimelineKey item)
-        {
-            return thisList.Remove(item as T);
-        }
-
-        public void RemoveAt(int index)
-        {
-            thisList.RemoveAt(index);
-        }
-        public IEnumerator<LiveTimelineKey> GetEnumerator()
-        {
-            return ToEnumerable().GetEnumerator();
-        }
-
-        public List<LiveTimelineKey> GetRange(int index, int count)
-        {
-            return thisList.GetRange(index, count).ConvertAll((Converter<T, LiveTimelineKey>)((T x) => x));
-        }
-
-        public IEnumerable<LiveTimelineKey> ToEnumerable()
-        {
-            for (int i = 0; i < Count; i++)
-            {
-                yield return this[i];
-            }
-        }
-
-        public LiveTimelineKey At(int index)
-        {
-            return (index >= 0 && index < thisList.Count) ? thisList[index] : null;
-        }
-
-        public LiveTimelineKey[] ToArray()
-        {
-            return thisList.ToArray();
-        }
-
-        public List<LiveTimelineKey> ToList()
-        {
-            return thisList.ConvertAll((Converter<T, LiveTimelineKey>)((T x) => x));
-        }
-
-        public bool Contains(LiveTimelineKey key)
-        {
-            return FindIndex(key) >= 0;
-        }
-
-        public int FindIndex(LiveTimelineKey key)
-        {
-            BinSearch(out var ret, out var _, key.frame, 0, Count - 1, Count);
-            return ret.index;
-        }
-
-        public FindKeyResult FindKeyCached(float frame, bool forceRefind)
-        {
-            FindKeyCached(frame, forceRefind, out var current, out var _);
-            return current;
-        }
-
-        public void FindKeyCached(float frame, bool forceRefind, out FindKeyResult current, out FindKeyResult next)
-        {
-            if (forceRefind || _lastFindIndex < 0)
-            {
-                FindKey(out current, out next, frame);
-            }
-            else
-            {
-                FindCurrentKeyNeighbor(frame, _lastFindIndex, out current, out next);
-            }
-            _lastFindIndex = current.index;
-        }
-
-        public FindKeyResult FindCurrentKey(int frame)
-        {
-            FindKey(out var ret, out var _, frame);
-            return ret;
-        }
-
-        public void FindKey(out FindKeyResult ret, out FindKeyResult next, float frame)
-        {
-            int count = thisList.Count;
-            if (count == 0)
-            {
-                ret.index = -1;
-                ret.key = null;
-                next.index = -1;
-                next.key = null;
-            }
-            else
-            {
-                BinSearch(out ret, out next, frame, 0, count - 1, count);
-            }
-        }
-
-        private void BinSearch(out FindKeyResult ret, out FindKeyResult next, float frame, int indexS, int indexE, int listSize)
-        {
-            int num = (indexE - indexS >> 1) + indexS;
-            T val = thisList[num];
-            if (num + 1 < listSize)
-            {
-                T val2 = thisList[num + 1];
-                if (val.frame <= frame && frame < val2.frame)
-                {
-                    ret.key = val;
-                    ret.index = num;
-                    next.key = val2;
-                    next.index = num + 1;
-                    return;
-                }
-                if (frame < val.frame)
-                {
-                    indexE = num;
-                    if (indexE > indexS)
-                    {
-                        BinSearch(out ret, out next, frame, indexS, indexE, listSize);
-                        return;
-                    }
-                }
-                else
-                {
-                    indexS = num + 1;
-                    if (indexS <= indexE)
-                    {
-                        BinSearch(out ret, out next, frame, indexS, indexE, listSize);
-                        return;
-                    }
-                }
-            }
-            else if (val.frame <= frame)
-            {
-                ret.key = val;
-                ret.index = num;
-                next.key = null;
-                next.index = -1;
-                return;
-            }
-            ret.key = null;
-            ret.index = -1;
-            next.key = null;
-            next.index = -1;
-        }
-
-        public void FindKeyLinear(out LiveTimelineKey curKey, out LiveTimelineKey nextKey, int curFrame)
-        {
-            curKey = null;
-            nextKey = null;
-            int count = thisList.Count;
-            for (int i = 0; i < count; i++)
-            {
-                if (thisList[i].frame > curFrame)
-                {
-                    nextKey = thisList[i];
-                    break;
-                }
-                curKey = thisList[i];
-            }
-        }
-
-        public FindKeyResult FindCurrentKeyNeighbor(float frame, int baseIndex)
-        {
-            FindCurrentKeyNeighbor(frame, baseIndex, out var ret, out var _);
-            return ret;
-        }
-
-        public void FindCurrentKeyNeighbor(float frame, int baseIndex, out FindKeyResult ret, out FindKeyResult next)
-        {
-            ret.key = null;
-            ret.index = -1;
-            next.key = null;
-            next.index = -1;
-            LiveTimelineKey liveTimelineKey = null;
-            LiveTimelineKey liveTimelineKey2 = null;
-            int count = thisList.Count;
-            int num = 0;
-            bool flag = false;
-            while (!flag)
-            {
-                flag = true;
-                int num2 = baseIndex + num;
-                int num3 = num2 + 1;
-                if (num2 < count)
-                {
-                    liveTimelineKey = thisList[num2];
-                    liveTimelineKey2 = null;
-                    if (num3 < count)
-                    {
-                        liveTimelineKey2 = thisList[num3];
-                    }
-                    if (liveTimelineKey.frame <= frame)
-                    {
-                        if (liveTimelineKey2 == null)
-                        {
-                            ret.key = liveTimelineKey;
-                            ret.index = num2;
-                            break;
-                        }
-                        if (frame < liveTimelineKey2.frame)
-                        {
-                            ret.key = liveTimelineKey;
-                            ret.index = num2;
-                            next.key = liveTimelineKey2;
-                            next.index = num3;
-                            break;
-                        }
-                    }
-                    flag = false;
-                }
-                if (num > 0)
-                {
-                    num2 = baseIndex - num;
-                    num3 = num2 + 1;
-                    if (num2 >= 0)
-                    {
-                        liveTimelineKey = thisList[num2];
-                        liveTimelineKey2 = null;
-                        if (num3 < count)
-                        {
-                            liveTimelineKey2 = thisList[num3];
-                        }
-                        if (liveTimelineKey.frame <= frame)
-                        {
-                            if (liveTimelineKey2 == null)
-                            {
-                                ret.key = liveTimelineKey;
-                                ret.index = num2;
-                                break;
-                            }
-                            if (frame < liveTimelineKey2.frame)
-                            {
-                                ret.key = liveTimelineKey;
-                                ret.index = num2;
-                                next.key = liveTimelineKey2;
-                                next.index = num3;
-                                break;
-                            }
-                        }
-                        flag = false;
-                    }
-                }
-                num++;
-            }
-        }
-
-
-    }
-
-    [System.Serializable]
-    public class LiveTimelineKeyIndex
-    {
-        public int index = -1;
-        public LiveTimelineKey prevKey = null;
-        public LiveTimelineKey key = null;
-        public LiveTimelineKey nextKey = null;
-    }
-
-    [System.Serializable]
-    public abstract class LiveTimelineKey
-    {
-        public int frame;
-        public LiveTimelineKeyAttribute attribute;
-
-        public LiveTimelineKeyDataType dataType;
-
-        private double _framesecond = -999;
-
-        public double FrameSecond { 
-            get{
-                if (_framesecond == -999)
-                {
-                    _framesecond = (double)frame / 60;
-                }
-                return _framesecond;
-               }
-           set => _framesecond = value; 
-        }
-    }
-
-    [System.Serializable]
-    public abstract class LiveTimelineKeyWithInterpolate : LiveTimelineKey
-    {
-        public LiveCameraInterpolateType interpolateType;
-        public AnimationCurve curve;
-        public LiveTimelineEasing.Type easingType;
-    }
 
     [Serializable]
     public class LiveTimelineKeyTimescaleData : LiveTimelineKey
     {
+        public override LiveTimelineKeyDataType dataType
+        {
+            get
+            {
+                return LiveTimelineKeyDataType.Timescale;
+            }
+        }
+
         public float Timescale;
     }
 
-//正在处理这里
-[System.Serializable]
+
+    [System.Serializable]
     public class LiveTimelineKeyCameraPositionData : LiveTimelineKeyWithInterpolate
     {
+        public override LiveTimelineKeyDataType dataType
+        {
+            get
+            {
+            return LiveTimelineKeyDataType.CameraPos;
+            }
+        }
         public LiveCameraPositionType setType;
         public Vector3 position;
         public Vector3 charaPos;
@@ -915,12 +429,18 @@ namespace Gallop.Live.Cutt
         [SerializeField] public List<LiveTimelineMultiCameraPositionData> multiCameraPosKeys;
         [SerializeField] public List<LiveTimelineMultiCameraLookAtData> multiCameraLookAtKeys;
 
-        //[SerializeField]用于该类在别的脚本里定义的时候
+        //[SerializeField]锟斤拷锟节革拷锟斤拷锟节憋拷慕疟锟斤拷锒拷锟斤拷时锟斤拷
         [SerializeField] public LiveTimelineKeyCameraLookAtDataList cameraLookAtKeys;
         [SerializeField] public LiveTimelineKeyCameraFovDataList cameraFovKeys;
         [SerializeField] public LiveTimelineKeyCameraRollDataList cameraRollKeys;
 
+        [SerializeField]
+        public LiveTimelineKeyPostEffectBloomDiffusionDataList postEffectBloomDiffusionKeys;
+        [SerializeField]
+        public List<LiveTimelineHdrBloomData> hdrBloomList;
+
         [SerializeField] public List<LiveTimelineCharaMotSeqData> charaMotSeqList;
+        [SerializeField] public List<LiveTimelineAnimationData> animationList = new List<LiveTimelineAnimationData>();
 
         [SerializeField] public LiveTimelineKeyCameraSwitcherDataList cameraSwitcherKeys;
         [SerializeField] public LiveTimelineKeyLipSyncDataList ripSyncKeys;
@@ -931,14 +451,24 @@ namespace Gallop.Live.Cutt
         [SerializeField] public LiveTimelineFormationOffsetData formationOffsetSet;
 
         [SerializeField] public List<LiveTimelineGlobalLightData> globalLightDataLists;
+        [SerializeField] public List<LiveTimelineStageEnvironmentData> environmentDataLists;
         [SerializeField] public List<LiveTimelineBgColor1Data> bgColor1List;
         [SerializeField] public List<LiveTimelineBgColor2Data> bgColor2List;
+        [SerializeField] public List<LiveTimelineBlinkLightData> blinkLightList;
+        [SerializeField] public List<LiveTimelineWashLightData> washLightList;
+        [SerializeField] public List<LiveTimelineMonitorControlData> monitorControlList;
+        [SerializeField] public List<LiveTimelineMonitorCameraPositionData> monitorCameraPosKeys;
+        [SerializeField] public List<LiveTimelineMonitorCameraLookAtData> monitorCameraLookAtKeys;
+        [SerializeField]public List<LiveTimelineLaserData> laserList;
+        [SerializeField] public List<LiveTimelineUVScrollLightData> uvScrollLightList;
 
         [SerializeField] public List<LiveTimelineTransformData> transformList;
         [SerializeField] public List<LiveTimelineObjectData> objectList;
+        [SerializeField] public List<LiveTimelineMobCyalumeControlData> mobControlList;
+        [SerializeField] public List<LiveTimelineMobCyalumeControlData> cyalumeControlList;
 
         /*
-		//终于可以调用AB包了，虽然后面发现没什么用...说不定什么时候能用到
+		//锟斤拷锟节匡拷锟皆碉拷锟斤拷AB锟斤拷锟剿ｏ拷锟斤拷然锟斤拷锟芥发锟斤拷没什么锟斤拷...说锟斤拷锟斤拷什么时锟斤拷锟斤拷锟矫碉拷
 		private void Start()
 		{
 			LoadCharaMotion();
@@ -986,35 +516,5 @@ namespace Gallop.Live.Cutt
             return (This & bit) != 0;
         }
     }
-
-    public class BezierCalcWork
-    {
-        public static BezierCalcWork cameraPos = new BezierCalcWork();
-
-        public static BezierCalcWork cameraLookAt = new BezierCalcWork();
-
-        private Vector3[] _points = new Vector3[17];
-
-        public void Set(Vector3 startPos, Vector3 endPos, int bezierNum)
-        {
-            _points[0] = startPos;
-            _points[1 + bezierNum] = endPos;
-        }
-
-        public void UpdatePoints(LiveTimelineKeyCameraPositionData posKey, LiveTimelineControl timelineControl)
-        {
-            posKey.GetBezierPoints(timelineControl, _points, 1);
-        }
-
-        public void UpdatePoints(LiveTimelineKeyCameraLookAtData lookAtKey, LiveTimelineControl timelineControl, Vector3 camPos)
-        {
-            lookAtKey.GetBezierPoints(timelineControl, camPos, _points, 1);
-        }
-
-        public void Calc(int bezierNum, float t, out Vector3 pos)
-        {
-            BezierUtil.Calc(_points, bezierNum + 2, t, out pos);
-        }
-    }
+    
 }
-

@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Data;
 using System.IO;
 using System.Linq;
+using System.Text;
 using UmaMusumeAudio;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -42,6 +43,26 @@ public class UmaViewerBuilder : MonoBehaviour
     public Camera AnimationCamera;
 
     public GameObject LiveControllerPrefab;
+
+// ---- Normal (non-mob, non-mini) costume visibility options ----
+public enum NormalCostumeHideMode
+{
+    None = 0,
+    // Hides the entire body renderer hierarchy (clothes are usually baked into the body prefab).
+    HideAllBodyRenderers = 1,
+    // Tries to hide only "clothes" renderers by matching renderer/material names (adjust keywords after checking logs).
+    HideByNameOrMaterial = 2
+}
+
+[Header("Normal Costume Visibility")]
+public NormalCostumeHideMode NormalHideMode = NormalCostumeHideMode.None;
+
+[Tooltip("Prints body renderers/materials once after loading a normal model (useful to tune keywords).")]
+public bool DumpNormalRenderersOnce = false;
+
+// Keywords used by HideByNameOrMaterial (edit these based on Dump logs).
+public string[] NormalClothKeywords = new[] { "cloth", "clothes", "dress", "wear", "costume", "skirt", "uniform", "outer" };
+public string[] NormalBodyKeywords  = new[] { "skin", "body", "bdy", "face", "head", "eye", "hair" };
 
     private void Awake()
     {
@@ -78,7 +99,7 @@ public class UmaViewerBuilder : MonoBehaviour
         yield break;
     }
 
-    public void LoadLiveUma(List<LiveCharacterSelect> characters)
+    public void LoadLiveUma(List<LiveCharacterLoadData> characters)
     {
         for (int i = 0; i < characters.Count; i++)
         {
@@ -99,6 +120,14 @@ public class UmaViewerBuilder : MonoBehaviour
                 {
                     LoadNormalUma(umaContainer, characters[i].CharaEntry, characters[i].CostumeId, false, characters[i].HeadCostumeId);
                 }
+
+                if (umaContainer.UmaAnimator != null)
+                {
+                    umaContainer.UmaAnimator.enabled = false;
+                    umaContainer.isAnimatorControl = false;
+                }
+
+                umaContainer.ConfigureLivePhysics();
 
                 Gallop.Live.Director.instance.CharaContainerScript.Add(umaContainer);
             }
@@ -258,15 +287,25 @@ public class UmaViewerBuilder : MonoBehaviour
             umaContainer.LoadHead(asset);
 
             //Load Physics
-            if (isDefaultHead)
+            // Load head CySpring physics.
+            //角色实际加载了哪个头，就必须加载同一个头目录下的 cloth。
+            string actualHeadCostumeId = isDefaultHead ? "00" : head_costumeId;
+
+            string headClothPath =
+                UmaDatabaseController.HeadPath +
+                $"chr{head_id}_{actualHeadCostumeId}/clothes/" +
+                $"pfb_chr{head_id}_{actualHeadCostumeId}_cloth00";
+
+            if (Main.AbList.TryGetValue(headClothPath, out UmaDatabaseEntry headClothAsset))
             {
-                var asset1 = Main.AbList[UmaDatabaseController.HeadPath + $"chr{id}_00/clothes/pfb_chr{id}_00_cloth00"];
-                umaContainer.LoadPhysics(asset1);
+                Debug.Log($"[UmaViewerBuilder] Load head physics: {headClothPath}");
+                umaContainer.LoadPhysics(headClothAsset);
             }
             else
             {
-                var asset1 = Main.AbList[UmaDatabaseController.HeadPath + $"chr{head_id}_{head_costumeId}/clothes/pfb_chr{head_id}_{head_costumeId}_cloth00"];
-                umaContainer.LoadPhysics(asset1);
+                Debug.LogWarning(
+                    $"[UmaViewerBuilder] Head physics not found: {headClothPath}"
+                );
             }
         }
 
@@ -328,6 +367,7 @@ public class UmaViewerBuilder : MonoBehaviour
         umaContainer.HeadBone = (GameObject)umaContainer.Body.GetComponent<AssetHolder>()._assetTable["head"];
         umaContainer.EyeHeight = umaContainer.Head.GetComponent<AssetHolder>()._assetTableValue["head_center_offset_y"];
         umaContainer.MergeModel();
+        ApplyNormalCostumeVisibilityOptions(umaContainer);
         umaContainer.SetHeight(-1);
         umaContainer.Initialize(!ModelSettings.IsTPose);
 
@@ -512,11 +552,47 @@ public class UmaViewerBuilder : MonoBehaviour
             umaContainer.MergeHairModel();
 
             //Load Physics
-            if (isDefaultHead)
+            // Load mob hair CySpring physics.
+            string paddedHairId = hairid.PadLeft(3, '0');
+
+            string hairClothPath =
+                $"{UmaDatabaseController.HeadPath}" +
+                $"chr{head_s}_{head_costumeId}/clothes/" +
+                $"pfb_chr{head_s}_{head_costumeId}_hair{paddedHairId}_cloth00";
+
+            if (Main.AbList.TryGetValue(
+                    hairClothPath,
+                    out UmaDatabaseEntry hairClothAsset))
             {
-                if (Main.AbList.TryGetValue($"{UmaDatabaseController.HeadPath}chr{head_s}_00/clothes/pfb_chr{head_s}_00_hair{hairid.PadLeft(3, '0')}_cloth00", out UmaDatabaseEntry asset1))
+                Debug.Log($"[UmaViewerBuilder] Load mob hair physics: {hairClothPath}");
+                umaContainer.LoadPhysics(hairClothAsset);
+            }
+            else
+            {
+                // 部分资源可能使用普通 cloth00，而不是 hairXXX_cloth00。
+                string fallbackHeadClothPath =
+                    $"{UmaDatabaseController.HeadPath}" +
+                    $"chr{head_s}_{head_costumeId}/clothes/" +
+                    $"pfb_chr{head_s}_{head_costumeId}_cloth00";
+
+                if (Main.AbList.TryGetValue(
+                        fallbackHeadClothPath,
+                        out UmaDatabaseEntry fallbackHeadClothAsset))
                 {
-                    umaContainer.LoadPhysics(asset1);
+                    Debug.Log(
+                        $"[UmaViewerBuilder] Hair physics not found, " +
+                        $"use fallback head physics: {fallbackHeadClothPath}"
+                    );
+
+                    umaContainer.LoadPhysics(fallbackHeadClothAsset);
+                }
+                else
+                {
+                    Debug.LogWarning(
+                        "[UmaViewerBuilder] Mob head physics not found.\n" +
+                        $"hair={hairClothPath}\n" +
+                        $"fallback={fallbackHeadClothPath}"
+                    );
                 }
             }
         }
@@ -739,63 +815,103 @@ public class UmaViewerBuilder : MonoBehaviour
     {
         characters.ForEach(a =>
         {
-            if (a.CharaEntry == null || a.CostumeId == "")
+            if (a.CharaEntry == null || string.IsNullOrEmpty(a.CostumeId))
             {
                 a.CharaEntry = Main.Characters[Random.Range(0, Main.Characters.Count / 2)];
                 a.CostumeId = "0002_00_00";
             }
-        });//fill empty
+        });
 
-        UmaAssetManager.PreLoadAndRun(Director.GetLiveAllVoiceEntry(live.MusicId, characters), 
-        delegate
+        // 在旧 UI 场景卸载前复制成普通 C# 数据。后续异步加载不会丢角色选择。
+        List<LiveCharacterLoadData> liveCharacters =
+            LiveCharacterLoadData.CaptureAll(characters);
+
+        bool requireStage = UI.isRequireStage;
+        List<UmaDatabaseEntry> preloadEntries =
+            Director.GetLivePreloadEntries(live, liveCharacters, requireStage);
+
+        UmaAssetManager.PreLoadAndRun(preloadEntries, delegate
         {
-            UmaSceneController.LoadScene("LiveScene",
-            delegate
-            {
-                GameObject MainLive = Instantiate(LiveControllerPrefab);
-                Director mController = MainLive.GetComponentInChildren<Director>();
-                mController.live = live;
-                mController.IsRecordVMD = UI.isRecordVMD;
-                mController.RequireStage = UI.isRequireStage;
-
-                List<GameObject> transferObjs = new List<GameObject>() {
-                            MainLive,
-                            GameObject.Find("ViewerMain"),
-                            GameObject.Find("Directional Light"),
-                            GameObject.Find("GlobalShaderController"),
-                            GameObject.Find("AudioManager")
-                };
-
-                // Move the GameObject (you attach this in the Inspector) to the newly loaded Scene
-                transferObjs.ForEach(o => SceneManager.MoveGameObjectToScene(o, SceneManager.GetSceneByName("LiveScene")));
-                mController.Initialize();
-
-                var actual_member_count = mController._liveTimelineControl.data.worksheetList[0].charaMotSeqList.Count;
-                if (actual_member_count > characters.Count)
+            UmaSceneController.LoadScene(
+                "LiveScene",
+                delegate
                 {
-                    Debug.LogWarning($"actual member count is {actual_member_count} current {characters.Count}");
-                    var actual_characters = new List<LiveCharacterSelect>();
-                    for (int i = 0; i < actual_member_count; i++)
+                    GameObject mainLive = Instantiate(LiveControllerPrefab);
+                    Director controller = mainLive.GetComponentInChildren<Director>();
+                    controller.live = live;
+                    controller.IsRecordVMD = UI.isRecordVMD;
+                    controller.RequireStage = requireStage;
+
+                    var binder = mainLive.GetComponent<CyalumeAutoBinder>() ??
+                                 mainLive.AddComponent<CyalumeAutoBinder>();
+
+                    if (mainLive.GetComponent<Gallop.Live.StageBlinkLightDriver>() == null)
+                        mainLive.AddComponent<Gallop.Live.StageBlinkLightDriver>();
+
+                    if (mainLive.GetComponent<Gallop.Live.StageUVScrollLightDriver>() == null)
+                        mainLive.AddComponent<Gallop.Live.StageUVScrollLightDriver>();
+
+                    if (mainLive.GetComponent<Gallop.Live.MonitorUvMovieProvider>() == null)
+                        mainLive.AddComponent<Gallop.Live.MonitorUvMovieProvider>();
+
+                    if (mainLive.GetComponent<Gallop.Live.StageMonitorDriver>() == null)
+                        mainLive.AddComponent<Gallop.Live.StageMonitorDriver>();
+
+                    binder.musicId = live.MusicId;
+
+                    var transferObjs = new List<GameObject>
                     {
-                        actual_characters.Add(characters[i % characters.Count]);
-                    }
-                    characters = actual_characters;
-                }
-                LoadLiveUma(characters);
+                        mainLive,
+                        GameObject.Find("ViewerMain"),
+                        GameObject.Find("Directional Light"),
+                        GameObject.Find("GlobalShaderController"),
+                        GameObject.Find("AudioManager")
+                    };
 
-                var Lyrics = LoadLiveLyrics(live.MusicId);
-                if (Lyrics != null)
+                    foreach (GameObject obj in transferObjs)
+                    {
+                        if (obj != null)
+                        {
+                            SceneManager.MoveGameObjectToScene(
+                                obj,
+                                SceneManager.GetSceneByName("LiveScene"));
+                        }
+                    }
+
+                    controller.Initialize();
+
+                    int actualMemberCount = controller
+                        ._liveTimelineControl
+                        .data
+                        .worksheetList[0]
+                        .charaMotSeqList
+                        .Count;
+
+                    if (actualMemberCount > liveCharacters.Count && liveCharacters.Count > 0)
+                    {
+                        Debug.LogWarning(
+                            $"actual member count is {actualMemberCount} current {liveCharacters.Count}");
+
+                        var expandedCharacters = new List<LiveCharacterLoadData>();
+                        for (int i = 0; i < actualMemberCount; i++)
+                            expandedCharacters.Add(liveCharacters[i % liveCharacters.Count]);
+
+                        liveCharacters = expandedCharacters;
+                    }
+
+                    LoadLiveUma(liveCharacters);
+
+                    var lyrics = LoadLiveLyrics(live.MusicId);
+                    if (lyrics != null)
+                        LiveViewerUI.Instance.CurrentLyrics = lyrics;
+                },
+                delegate
                 {
-                    LiveViewerUI.Instance.CurrentLyrics = Lyrics;
-                }
-            },
-            delegate
-            {
-                Director.instance.InitializeUI();
-                Director.instance.InitializeTimeline(characters, UI.LiveMode);
-                Director.instance.InitializeMusic(live.MusicId, characters);
-                Director.instance.Play();
-            });
+                    Director.instance.InitializeUI();
+                    Director.instance.InitializeTimeline(liveCharacters, UI.LiveMode);
+                    Director.instance.InitializeMusic(live.MusicId, liveCharacters);
+                    Director.instance.Play();
+                });
         });
     }
 
@@ -975,7 +1091,14 @@ public class UmaViewerBuilder : MonoBehaviour
 
     public void LoadAssetPath(string path, Transform SetParent)
     {
-        Instantiate(UmaViewerMain.Instance.AbList[path].Get<GameObject>(), SetParent);
+        var go = Instantiate(UmaViewerMain.Instance.AbList[path].Get<GameObject>(), SetParent);
+
+        // 统计 missing script 数量并输出一次性汇总警告（避免刷屏）
+        int missingCount = Gallop.Live.StageController.CountMissingScripts(go);
+        if (missingCount > 0)
+        {
+            Debug.LogWarning($"[LoadAssetPath] '{path}' 实例化后有 {missingCount} 个 missing script 组件（来自原始游戏的不可用脚本）");
+        }
     }
    
     public void SetPreviewCamera(AnimationClip clip)
@@ -1008,7 +1131,7 @@ public class UmaViewerBuilder : MonoBehaviour
             {
                 Texture2D texture = (Texture2D)assetBundle.LoadAsset($"chr_icon_{id}");
                 Sprite sprite = Sprite.Create(texture, new Rect(0, 0, texture.width, texture.height), Vector2.zero);
-                assetBundle.Unload(false);
+                UmaAssetManager.UnloadAssetBundle(entry, false);
                 return sprite;
             }
         }
@@ -1026,7 +1149,7 @@ public class UmaViewerBuilder : MonoBehaviour
             {
                 Texture2D texture = (Texture2D)assetBundle.LoadAsset($"mob_chr_icon_{id}_000001_01");
                 Sprite sprite = Sprite.Create(texture, new Rect(0, 0, texture.width, texture.height), Vector2.zero);
-                assetBundle.Unload(false);
+                UmaAssetManager.UnloadAssetBundle(entry, false);
                 return sprite;
             }
         }
@@ -1038,7 +1161,7 @@ public class UmaViewerBuilder : MonoBehaviour
         AssetBundle assetBundle = UmaAssetManager.LoadAssetBundle(item, true);
         Texture2D texture = (Texture2D)assetBundle.LoadAsset(assetBundle.GetAllAssetNames()[0]);
         Sprite sprite = Sprite.Create(texture, new Rect(0, 0, texture.width, texture.height), Vector2.zero);
-        assetBundle.Unload(false);
+        UmaAssetManager.UnloadAssetBundle(item, false);
         return sprite;
     }
 
@@ -1053,7 +1176,7 @@ public class UmaViewerBuilder : MonoBehaviour
             {
                 Texture2D texture = (Texture2D)assetBundle.LoadAsset($"jacket_icon_l_{musicid}");
                 Sprite sprite = Sprite.Create(texture, new Rect(0, 0, texture.width, texture.height), Vector2.zero);
-                assetBundle.Unload(false);
+                UmaAssetManager.UnloadAssetBundle(entry, false);
                 return sprite;
             }
         }
@@ -1143,4 +1266,118 @@ public class UmaViewerBuilder : MonoBehaviour
         }
         CurrentLiveSoundAWB.Clear();
     }
+private bool _dumpedNormalRenderers = false;
+
+private void ApplyNormalCostumeVisibilityOptions(UmaContainerCharacter uma)
+{
+    if (uma == null) return;
+
+    if (DumpNormalRenderersOnce && !_dumpedNormalRenderers)
+    {
+        DumpBodyRenderersAndMaterials(uma);
+        _dumpedNormalRenderers = true;
+    }
+
+    switch (NormalHideMode)
+    {
+        case NormalCostumeHideMode.HideAllBodyRenderers:
+            HideAllBodyRenderers(uma);
+            break;
+        case NormalCostumeHideMode.HideByNameOrMaterial:
+            HideCostumeRenderersByNameOrMaterial(uma);
+            break;
+        default:
+            break;
+    }
+}
+
+private void HideAllBodyRenderers(UmaContainerCharacter uma)
+{
+    // Clothes are typically baked into the body prefab, so hiding Body renderers hides "costume" too.
+    var body = uma.Body;
+    if (!body) return;
+
+    foreach (var r in body.GetComponentsInChildren<Renderer>(true))
+        r.enabled = false;
+}
+
+private void HideCostumeRenderersByNameOrMaterial(UmaContainerCharacter uma)
+{
+    // Conservative: hide only renderers that look like clothes, and avoid anything that looks like skin/body/face/hair.
+    // Tune NormalClothKeywords / NormalBodyKeywords after checking Dump logs.
+    var root = uma.gameObject;
+    if (!root) return;
+
+    foreach (var r in root.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+    {
+        if (r == null) continue;
+
+        bool looksCloth = MatchesAny(r.name, NormalClothKeywords) || MaterialsMatchAny(r.sharedMaterials, NormalClothKeywords);
+        if (!looksCloth) continue;
+
+        bool looksBody = MatchesAny(r.name, NormalBodyKeywords) || MaterialsMatchAny(r.sharedMaterials, NormalBodyKeywords);
+        if (looksBody) continue;
+
+        r.enabled = false;
+    }
+}
+
+private void DumpBodyRenderersAndMaterials(UmaContainerCharacter uma)
+{
+    if (uma == null) return;
+    var body = uma.Body;
+    if (!body)
+    {
+        Debug.LogWarning("[UmaViewerBuilder] DumpNormalRenderersOnce: Body is null.");
+        return;
+    }
+
+    var sb = new StringBuilder();
+    var renderers = body.GetComponentsInChildren<Renderer>(true);
+    sb.AppendLine($"[UmaViewerBuilder] Body renderer dump: {renderers.Length} renderers under {body.name}");
+
+    foreach (var r in renderers)
+    {
+        sb.Append($"- {r.GetType().Name}: {r.name}  mats=[");
+        var mats = r.sharedMaterials;
+        if (mats != null)
+        {
+            for (int i = 0; i < mats.Length; i++)
+            {
+                var m = mats[i];
+                sb.Append(m ? m.name : "null");
+                if (i < mats.Length - 1) sb.Append(", ");
+            }
+        }
+        sb.AppendLine("]");
+    }
+
+    Debug.Log(sb.ToString());
+}
+
+private static bool MatchesAny(string value, string[] keywords)
+{
+    if (string.IsNullOrEmpty(value) || keywords == null) return false;
+    var v = value.ToLowerInvariant();
+    for (int i = 0; i < keywords.Length; i++)
+    {
+        var k = keywords[i];
+        if (string.IsNullOrEmpty(k)) continue;
+        if (v.Contains(k.ToLowerInvariant())) return true;
+    }
+    return false;
+}
+
+private static bool MaterialsMatchAny(Material[] materials, string[] keywords)
+{
+    if (materials == null || keywords == null) return false;
+    for (int i = 0; i < materials.Length; i++)
+    {
+        var m = materials[i];
+        if (!m) continue;
+        if (MatchesAny(m.name, keywords)) return true;
+    }
+    return false;
+}
+
 }

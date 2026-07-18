@@ -26,6 +26,10 @@ namespace Gallop.Live.Cutt
     [System.Serializable]
     public class LiveTimelineKeyPostFilmData : LiveTimelineKeyWithInterpolate
     {
+        public override LiveTimelineKeyDataType dataType
+        {
+            get{return LiveTimelineKeyDataType.PostFilm;}
+        }
         public enum LayerMode
         {
             Color = 0,

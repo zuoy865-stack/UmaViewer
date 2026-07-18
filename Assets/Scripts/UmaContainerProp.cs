@@ -11,15 +11,15 @@ public class UmaContainerProp : UmaContainer
         var go = entry.Get<GameObject>();
         var prop = Instantiate(go, SetParent ? SetParent : this.transform);
 
-        /*
-        foreach (Renderer r in prop.GetComponentsInChildren<Renderer>())
+        
+        /*foreach (Renderer r in prop.GetComponentsInChildren<Renderer>())
         {
             foreach (Material m in r.sharedMaterials)
             {
                 //Shaders can be differentiated by checking m.shader.name
                 m.shader = Shader.Find("Unlit/Transparent Cutout");
             }
-        }
-        */
+        }*/
+        
     }
 }

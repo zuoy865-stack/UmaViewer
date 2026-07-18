@@ -26,6 +26,13 @@ public class LiveViewerUI : MonoBehaviour
     float height;
     private void Awake()
     {
+        if (Config.Instance == null)
+        {
+            new Config();
+        }
+        ApplyFrameRateOptions();
+        UmaViewerMain.ApplyFrameRateLimit();
+
         height = BottonUITransform.rect.height;
         targetHeight = 0;
         Invoke(nameof(HideSlider), 1.5f);
@@ -58,8 +65,19 @@ public class LiveViewerUI : MonoBehaviour
 
     public void SetFrameRate(int fps)
     {
-        QualitySettings.vSyncCount = 0;
-        Application.targetFrameRate = int.Parse(FrameRateDropDown.options[fps].text);
+        Config.Instance.TargetFrameRate = fps == 1 ? 30 : 60;
+        Config.Instance.UpdateConfig(false);
+        UmaViewerMain.ApplyFrameRateLimit();
+    }
+
+    private void ApplyFrameRateOptions()
+    {
+        if (FrameRateDropDown == null) return;
+
+        FrameRateDropDown.ClearOptions();
+        FrameRateDropDown.AddOptions(new List<string> { "60", "30" });
+        FrameRateDropDown.SetValueWithoutNotify(Config.Instance.GetTargetFrameRate() == 30 ? 1 : 0);
+        FrameRateDropDown.RefreshShownValue();
     }
 
     public void UpdateLyrics(float time)
