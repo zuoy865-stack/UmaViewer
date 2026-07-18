@@ -1,0 +1,39 @@
+# Unity-generated directories
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+/[Mm]emoryCaptures/
+/[Rr]ecordings/
+
+# IDE-generated files
+/.vs/
+/.vscode/
+*.csproj
+*.sln
+*.suo
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Requested exclusions: CySpring and SQLite3MC native plugins for macOS/iOS
+/Assets/Plugins/CySpringPlugin.dylib
+/Assets/Plugins/CySpringPlugin.dylib.meta
+/Assets/Plugins/libsqlite3mc_mac.dylib
+/Assets/Plugins/libsqlite3mc_mac.dylib.meta
+**/[iI][oO][sS]/**/*[cC][yY][sS]pring*
+**/[iI][oO][sS]/**/*sqlite3mc*
+**/[iI][oO][sS]/**/*SQLite3MC*
