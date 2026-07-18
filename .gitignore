@@ -1,29 +1,20 @@
-# Unity generated directories
+# Unity-generated directories
 /[Ll]ibrary/
 /[Tt]emp/
 /[Oo]bj/
 /[Bb]uild/
 /[Bb]uilds/
 /[Ll]ogs/
+/[Uu]ser[Ss]ettings/
 /[Mm]emoryCaptures/
 /[Rr]ecordings/
 
-# Local Unity/user state
-/[Uu]ser[Ss]ettings/
-/.utmp/
+# IDE-generated files
 /.vs/
 /.vscode/
-/.idea/
-/.gradle/
-
-# Generated IDE files
-ExportedObj/
-.consulo/
 *.csproj
-*.unityproj
 *.sln
 *.suo
-*.tmp
 *.user
 *.userprefs
 *.pidb
@@ -34,34 +25,15 @@ ExportedObj/
 *.opendb
 *.VC.db
 
-# Unity generated metadata and crash files
-*.pidb.meta
-*.pdb.meta
-*.mdb.meta
-sysinfo.txt
-
-# Build packages
-*.apk
-*.aab
-*.unitypackage
-crashlytics-build.properties
-
 # OS files
 .DS_Store
 Thumbs.db
 
-# UmaViewer local/generated data
-/Assets/AmplifyShaderEditor/
-/Assets/AmplifyShaderEditor.meta
-/Assets/Plugins/Editor/JetBrains*
-/Assets/Plugins/RootMotion/PuppetMaster/_Integration/
-/Assets/Plugins/RootMotion/FinalIK/_Integration/
-/Ignore/
-/Screenshots/
-/VMDRecords/
-/Poses/
-/gltf/
-/BuildDev/
-
-# Contains machine-specific game paths and preferences
-/Config.json
+# Requested exclusions: CySpring and SQLite3MC native plugins for macOS/iOS
+/Assets/Plugins/CySpringPlugin.dylib
+/Assets/Plugins/CySpringPlugin.dylib.meta
+/Assets/Plugins/libsqlite3mc_mac.dylib
+/Assets/Plugins/libsqlite3mc_mac.dylib.meta
+**/[iI][oO][sS]/**/*[cC][yY][sS]pring*
+**/[iI][oO][sS]/**/*sqlite3mc*
+**/[iI][oO][sS]/**/*SQLite3MC*

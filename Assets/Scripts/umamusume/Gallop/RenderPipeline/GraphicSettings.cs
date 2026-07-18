@@ -4,6 +4,65 @@ namespace Gallop
 {
     public static class GraphicSettings
     {
+  
+        //* 图像效果能力开关
+        //* 当前项目固定使用最高画质,因此静态初始化时全部开启
+        public static bool IsGlobalFog;
+        public static bool IsSunShaft;
+        public static bool IsTiltShift;
+        public static bool IsIndirectLightShaft;
+
+        public static bool IsBloom;
+        public static bool IsDOF;
+        public static bool IsScreenOverlay;
+
+        // cy拼错单词了,字段名就是 Diffution,不要改成 Diffusion
+        public static bool IsDiffution;
+
+        public static bool IsRadialBlur;
+        public static bool IsFluctuation;
+        public static bool IsLensDistortion;
+        public static bool IsChromaticAberration;
+        public static bool IsColorCorrection;
+        public static bool IsColorGrading;
+        public static bool IsToneCurve;
+        public static bool IsExposure;
+        public static bool IsTransmittedLight;
+        public static bool IsRainSplash;
+
+        static GraphicSettings()
+        {
+            // 项目固定使用最高图像效果画质
+            SetGameQualityImageEffect(true);
+        }
+
+        public static void SetGameQualityImageEffect(bool isNormal)
+        {
+            // 无论isNormal是什么,都强制开启这两个
+            IsScreenOverlay = true;
+            IsRadialBlur = true;
+
+            IsBloom = isNormal;
+            IsDOF = isNormal;
+            IsDiffution = isNormal;
+
+            IsGlobalFog = isNormal;
+            IsSunShaft = isNormal;
+            IsTiltShift = isNormal;
+            IsIndirectLightShaft = isNormal;
+
+            IsFluctuation = isNormal;
+            IsLensDistortion = isNormal;
+            IsChromaticAberration = isNormal;
+
+            IsColorGrading = isNormal;
+            IsToneCurve = isNormal;
+            IsExposure = isNormal;
+            IsTransmittedLight = isNormal;
+
+            
+        }
+
         public enum LayerIndex
         {
             LayerDefault = 0,

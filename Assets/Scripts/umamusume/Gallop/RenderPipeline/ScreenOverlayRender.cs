@@ -165,8 +165,7 @@ namespace Gallop.RenderPipeline
                     currentSource.ReleaseTemporaryRT(cmd);
             }
 
-            // Official behavior: the final overlay command is not submitted here.
-            // The outer render pass submits the remaining CommandBuffer commands.
+            //外部渲染通道会提交剩余的CommandBuffer 命令
         }
 
         [Serializable]
@@ -197,8 +196,6 @@ namespace Gallop.RenderPipeline
             public Vector4 RollParameter;
             public Vector4 ScaleParameter;
 
-            // Present in the official Parameter layout. Render.Apply keeps its own
-            // runtime copy, exactly as the official implementation does.
             private bool _isUVMovieNoScale;
 
             public bool IsEnableDepth;
@@ -368,7 +365,7 @@ namespace Gallop.RenderPipeline
             {
                 int layerMode = (int)param.LayerMode;
 
-                // Official early return only applies to nonzero LayerMode.
+                // early return only applies to nonzero LayerMode.
                 if (layerMode != 0 && !EnableUVMovie)
                     return;
 
@@ -411,8 +408,7 @@ namespace Gallop.RenderPipeline
                     }
                 }
 
-                // LayerMode values outside 0/1/2 intentionally leave the blend
-                // keyword state unchanged, matching the official switch flow.
+                // LayerMode 值在 0/1/2 之外时，有意保持混合关键字状态不变，以匹配官方的 switch 流程
                 _isUVMovieNoScale = layerMode == 2;
 
                 if (param.IsExistMovieMask && param.MovieMaskTexture != null)

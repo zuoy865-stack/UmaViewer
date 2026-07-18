@@ -46,12 +46,6 @@ namespace Gallop
             Slowly = 2,
             Max = 3
         }
-
-        /// <summary>
-        /// The official client can replace some song titles with an image.
-        /// UmaViewer currently has no title-image implementation, so live song
-        /// names are read from text_data and all other songs fall back to cue name.
-        /// </summary>
         public static string ResolveSongTitle(
             MasterJukeboxMusicData.JukeboxMusicData music,
             System.Collections.Generic.IEnumerable<DataRow> liveData)
@@ -128,10 +122,8 @@ namespace Gallop
                     DateTimeStyles.None,
                     out DateTime ymd))
             {
-                // Japanese master data normally stores these values in JST.
-                value = new DateTimeOffset(
-                    DateTime.SpecifyKind(ymd, DateTimeKind.Unspecified),
-                    TimeSpan.FromHours(9));
+                
+                value = new DateTimeOffset(  DateTime.SpecifyKind(ymd, DateTimeKind.Unspecified), TimeSpan.FromHours(9));
                 return true;
             }
 

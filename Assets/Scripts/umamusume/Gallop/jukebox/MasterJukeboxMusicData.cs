@@ -6,12 +6,7 @@ using Mono.Data.Sqlite;
 
 namespace Gallop
 {
-    /// <summary>
-    /// UmaViewer adapter for the official MasterJukeboxMusicData table.
-    /// The public API and row fields follow the official dummy class, while
-    /// the database backend uses the Mono.Data.Sqlite connection already used
-    /// by UmaDatabaseController.
-    /// </summary>
+    
     public sealed class MasterJukeboxMusicData
     {
         public const string TABLE_NAME = "jukebox_music_data";
@@ -82,11 +77,6 @@ namespace Gallop
             return list != null && list.Count > 0 ? list : null;
         }
 
-        /// <summary>
-        /// Viewer convenience method. The official dialog requests several
-        /// VersionType lists and combines them. Until that exact dialog filter
-        /// is fully reconstructed, this returns the union of every table row.
-        /// </summary>
         public List<JukeboxMusicData> GetAll()
         {
             ForcePreloadAllEntries();

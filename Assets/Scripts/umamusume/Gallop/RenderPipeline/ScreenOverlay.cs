@@ -7,8 +7,7 @@ namespace Gallop.ImageEffect
     [Serializable]
     public class ScreenOverlay
     {
-        // Official keyword order used by both the legacy image-effect path and
-        // Gallop.RenderPipeline.ScreenOverlayRender.
+        //同时用于旧版图像效果路径和 Gallop.RenderPipeline.ScreenOverlayRender
         private static readonly string[] SHADER_KEYWORD_MODE =
         {
             "MODE_NONE",
@@ -32,8 +31,7 @@ namespace Gallop.ImageEffect
             "BLEND_MUL"
         };
 
-        // Adapter for the official runtime capability flags. These remain true
-        // until their original owner types are connected in the project.
+        // 官方运行时能力标志的适配器,在项目中原有所有者类型完成连接之前，这些标志始终保持为 true
         public static bool EnablePostFilm = true;
         public static bool EnableUVMovie = true;
         public static Color DefaultPostFilmColor = Color.black;

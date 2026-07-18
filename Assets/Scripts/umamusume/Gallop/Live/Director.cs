@@ -979,9 +979,9 @@ namespace Gallop.Live
 
             param.DiffusionContrast =
                 updateInfo.diffusionContrast;
-    //         Debug.Log(
-    // $"[BloomDirector] activeCameraIndex={_activeCameraIndex}, " +
-    // $"imageEffect={(imageEffect != null ? imageEffect.name : "null")}");
+            Debug.Log(
+    $"[BloomDirector] activeCameraIndex={_activeCameraIndex}, " +
+    $"imageEffect={(imageEffect != null ? imageEffect.name : "null")}");
         }
         private void OnDestroy()
         {

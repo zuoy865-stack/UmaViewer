@@ -6,15 +6,15 @@ using UnityEngine.Rendering;
 namespace Gallop
 {
     /// <summary>
-    /// Gallop ShaderManager Dof/Bloom compatibility implementation.
+    /// Gallop ShaderManager 的 Dof/Bloom 兼容性实现。
     ///
-    /// This version is integrated directly with the project's UmaAssetManager:
-    /// - UmaViewerMain loads AbList["shader"] through UmaAssetManager.
-    /// - UmaAssetManager keeps shader.a in its NeverUnload cache.
-    /// - ShaderManager resolves official Gallop paths directly from that AB.
+    /// 此版本直接与项目的 UmaAssetManager 集成：
+    /// - UmaViewerMain 通过 UmaAssetManager 加载 AbList["shader"]
+    /// - UmaAssetManager 将 shader.a 保留在其 NeverUnload 缓存中。
+    /// - ShaderManager 直接从该 AssetBundle 解析官方的 Gallop 路径
     ///
-    /// Resources.Load and extra AssetBundle registration are not used.
-    /// </summary>
+    /// 不使用 Resources.Load 和额外的 AssetBundle 注册
+/// </summary>
     public class ShaderManager
     {
         private const ShaderKinds ShaderPassTypeNormalGroupBegin = ShaderKinds.SoftShadowEffect;
@@ -516,20 +516,20 @@ namespace Gallop
             return _propertyIdNames[(int)id];
         }
 
-        // private static void SetupShaderVariant()
-        // {
-        //     // Dof/Bloom-only project integration.
-        //     // Official ShaderManager also adds RadialBlurPass and
-        //     // ColorCorrectionPass here.
-        //     RenderPipeline.DofDiffusionBloomOverlayPass .AddShaderVariant(_shaderVariantCollection);
-        // }
+        private static void SetupShaderVariant()
+        {
+            // Dof/Bloom-only project integration.
+            // Official ShaderManager also adds RadialBlurPass and
+            // ColorCorrectionPass here.
+            RenderPipeline.DofDiffusionBloomOverlayPass .AddShaderVariant(_shaderVariantCollection);
+        }
 
-        // private static bool IsShaderVariant(ShaderKinds kind)
-        // {
-        //     return RenderPipeline
-        //         .DofDiffusionBloomOverlayPass
-        //         .IsVaritantShader(kind);
-        // }
+        private static bool IsShaderVariant(ShaderKinds kind)
+        {
+            return RenderPipeline
+                .DofDiffusionBloomOverlayPass
+                .IsVaritantShader(kind);
+        }
 
         private static void AfterWarmupAllShader()
         {
@@ -668,9 +668,7 @@ namespace Gallop
                 yield break;
             }
 
-            // Project-compatible Dof/Bloom subset.
-            // The complete official implementation uses the unknown
-            // 18-entry AFTERDOWNLOAD_WARMUPSHADER_ARRAY in groups of three.
+            // 项目兼容的 Dof/Bloom 子集,完整的官方实现使用了未知的 18 条目 AFTERDOWNLOAD_WARMUPSHADER_ARRAY,按三个一组排列
             for (int i = 0; i < DofBloomShaderKinds.Length; i++)
             {
                 LoadShader(DofBloomShaderKinds[i]);
@@ -719,10 +717,8 @@ namespace Gallop
 
         private static AssetBundle GetGameShaderBundle()
         {
-            // Use the actual UmaDatabaseEntry when available because
-            // UmaAssetManager caches by entry.Name rather than by AbList key.
-            global::UmaViewerMain main =
-                global::UmaViewerMain.Instance;
+            // 尽可能使用实际的 UmaDatabaseEntry，因为UmaAssetManager按 entry.Name 而非 AbList键进行缓存。
+            global::UmaViewerMain main = global::UmaViewerMain.Instance;
 
             if (main != null && main.AbList != null)
             {

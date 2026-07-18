@@ -49,8 +49,7 @@ namespace Gallop.RenderPipeline
                 return _id == other._id;
             }
 
-            // 任意一边是外部 RenderTargetIdentifier，
-            // 则统一比较实际的 RenderTargetIdentifier。
+            // 任意一边是外部 RenderTargetIdentifier,则统一比较实际的 RenderTargetIdentifier
             return _rtId == other._rtId;
         }
 

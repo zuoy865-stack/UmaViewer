@@ -10,10 +10,6 @@ using Object = UnityEngine.Object;
 
 namespace Gallop
 {
-    /// <summary>
-    /// Resolves the official jukebox cuesheet/cue pair to the matching ACB/AWB
-    /// resources and exposes them through UmaViewer's regular AudioSource UI.
-    /// </summary>
     internal sealed class JukeboxAudioPlayer : IDisposable
     {
         private GameObject _root;
@@ -27,19 +23,12 @@ namespace Gallop
         public bool IsPrepared => _prepared;
         public bool IsPlaying => _sources.Any(source => source != null && source.isPlaying);
 
-        public bool Prepare(
-            MasterJukeboxMusicData.JukeboxMusicData music,
-            bool loop,
-            out string error)
+        public bool Prepare( MasterJukeboxMusicData.JukeboxMusicData music, bool loop, out string error)
         {
             return Prepare(music, false, loop, out error);
         }
 
-        public bool Prepare(
-            MasterJukeboxMusicData.JukeboxMusicData music,
-            bool useGameSize,
-            bool loop,
-            out string error)
+        public bool Prepare(MasterJukeboxMusicData.JukeboxMusicData music, bool useGameSize, bool loop, out string error)
         {
             Clear();
             error = string.Empty;
@@ -301,12 +290,7 @@ namespace Gallop
             return false;
         }
 
-        private void CreateAudioSources(
-            UmaDatabaseEntry awb,
-            string awbPath,
-            List<int> allWaveIds,
-            List<int> targetWaveIds,
-            bool loop)
+        private void CreateAudioSources( UmaDatabaseEntry awb, string awbPath, List<int> allWaveIds, List<int> targetWaveIds, bool loop)
         {
             StopOtherViewerAudio();
 
@@ -335,10 +319,7 @@ namespace Gallop
                 int sampleRate = stream.WaveFormat.SampleRate;
                 int sampleLength = checked((int)(stream.Length / channels / bytesPerSample));
 
-                AudioClip clip = AudioClip.Create(
-                    $"{Path.GetFileNameWithoutExtension(awb.Name)}_{waveId}",
-                    sampleLength,
-                    channels,
+                AudioClip clip = AudioClip.Create( $"{Path.GetFileNameWithoutExtension(awb.Name)}_{waveId}", sampleLength, channels,
                     sampleRate,
                     true,
                     data => sampleProvider.Read(data, 0, data.Length),

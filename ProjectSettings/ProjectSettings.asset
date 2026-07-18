@@ -14,7 +14,7 @@ PlayerSettings:
   accelerometerFrequency: 60
   companyName: "\u8C03\u97F3\u7CD5\u624B"
   productName: UmaViewer
-  defaultCursor: {fileID: 2800000, guid: 533f56f1c61acf543bf019a728aadcd4, type: 3}
+  defaultCursor: {fileID: 0}
   cursorHotspot: {x: 40, y: 4}
   m_SplashScreenBackgroundColor: {r: 0.13725491, g: 0.12156863, b: 0.1254902, a: 1}
   m_ShowUnitySplashScreen: 1
@@ -166,7 +166,7 @@ PlayerSettings:
   androidMaxAspectRatio: 2.1
   applicationIdentifier:
     Android: com.hongyiw689.umaviewer
-    Standalone: com.UmaViewer
+    Standalone: com.------------.UmaViewer
     iPhone: com.------------.UmaViewer
   buildNumber:
     Standalone: 0
