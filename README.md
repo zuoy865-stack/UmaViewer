@@ -1,4 +1,9 @@
 # Uma Viewer (2)
+## 二次创作守则 / Derivative Work Guidelines
+
+使用本项目时，请阅读并遵守[《赛马娘 Pretty Derby》官方二次创作守则](https://umamusume.jp/derivativework_guidelines/).
+
+When using this project,Please read and follow the [official *Umamusume: Pretty Derby* Derivative Work Guidelines](https://umamusume.jp/derivativework_guidelines/).
 ⚠️ If you see **"Failed to load il2cpp"** or the app cannot start on Windows, it may be blocked by **Windows Smart App Control**.
 
  If it fails, turn off Smart App Control:
