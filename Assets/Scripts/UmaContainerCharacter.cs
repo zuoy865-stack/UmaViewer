@@ -34,7 +34,7 @@ public class UmaContainerCharacter : UmaContainer
     public GameObject UpBodyBone;
     public Vector3 UpBodyPosition;
     public Quaternion UpBodyRotation;
-    public Dictionary<Transform, (Vector3 pos, Quaternion rot)> InitBoneTransform;
+    public Dictionary<Transform, (Vector3 localPosition, Quaternion localRotation, Vector3 localScale)> InitBoneTransform;
 
     [Header("Face")]
     public FaceDrivenKeyTarget FaceDrivenKeyTarget;
@@ -175,6 +175,9 @@ public class UmaContainerCharacter : UmaContainer
         UpBodyPosition = UpBodyBone.transform.localPosition;
         UpBodyRotation = UpBodyBone.transform.localRotation;
 
+        // 此时已完成模型合并和身高缩放，且预览动画尚未加载，适合作为稳定的导出参考姿势。
+        CaptureInitialBodyPose();
+
         //Models must be merged before handling extra morphs
         if (FaceDrivenKeyTarget && smile)
             FaceDrivenKeyTarget.ChangeMorphWeight(FaceDrivenKeyTarget.MouthMorphs[3], 1);
@@ -303,11 +306,6 @@ public class UmaContainerCharacter : UmaContainer
             }
         }
 
-        InitBoneTransform = new Dictionary<Transform, (Vector3 pos, Quaternion rot)>();
-        foreach (var bone in bodySkinnedMeshRenderer.bones)
-        {
-            InitBoneTransform[bone] = (bone.position, bone.rotation);
-        }
     }
 
     public void MergeHairModel()
@@ -2524,15 +2522,44 @@ public class UmaContainerCharacter : UmaContainer
         return true;
     }
 
+    private void CaptureInitialBodyPose()
+    {
+        InitBoneTransform =
+            new Dictionary<Transform, (Vector3 localPosition, Quaternion localRotation, Vector3 localScale)>();
+
+        // 覆盖所有可能被 Animator 驱动的模型节点，避免特殊动作残留在控制节点或辅助骨骼中。
+        foreach (Transform modelTransform in GetComponentsInChildren<Transform>(true))
+        {
+            if (modelTransform == transform)
+            {
+                continue;
+            }
+
+            InitBoneTransform[modelTransform] = (
+                modelTransform.localPosition,
+                modelTransform.localRotation,
+                modelTransform.localScale);
+        }
+    }
+
     public void ResetBodyPose()
     {
         if (InitBoneTransform == null)
         {
             return;
         }
+
+        // 使用本地变换恢复，避免父节点缩放或旋转使子骨骼的世界坐标发生二次偏移。
         foreach (var pair in InitBoneTransform)
         {
-            pair.Key.SetPositionAndRotation(pair.Value.pos, pair.Value.rot);
+            if (pair.Key == null)
+            {
+                continue;
+            }
+
+            pair.Key.localPosition = pair.Value.localPosition;
+            pair.Key.localRotation = pair.Value.localRotation;
+            pair.Key.localScale = pair.Value.localScale;
         }
     }
 

@@ -328,9 +328,30 @@ namespace LibMMD.Writer
                 writer.Write(link.HasLimit ? (byte)1 : (byte)0);
                 if (link.HasLimit)
                 {
-                    MMDReaderWriteUtil.WriteVector3(writer, link.LoLimit, false);
-                    MMDReaderWriteUtil.WriteVector3(writer, link.HiLimit, false);
+                    WriteIkAngleLimits(writer, link.LoLimit, link.HiLimit);
                 }
+            }
+        }
+
+        private static void WriteIkAngleLimits(BinaryWriter writer, Vector3 lower, Vector3 upper)
+        {
+            ValidateFinite(lower, "IK lower limit");
+            ValidateFinite(upper, "IK upper limit");
+
+            // PMX IK 区间是原始欧拉角弧度；不能复用空间向量的尺寸倍率或 X/Z 翻轴。
+            Vector3 pmxLower = Vector3.Min(lower, upper);
+            Vector3 pmxUpper = Vector3.Max(lower, upper);
+            MMDReaderWriteUtil.WriteRawVector3(writer, pmxLower);
+            MMDReaderWriteUtil.WriteRawVector3(writer, pmxUpper);
+        }
+
+        private static void ValidateFinite(Vector3 value, string fieldName)
+        {
+            if (float.IsNaN(value.x) || float.IsInfinity(value.x) ||
+                float.IsNaN(value.y) || float.IsInfinity(value.y) ||
+                float.IsNaN(value.z) || float.IsInfinity(value.z))
+            {
+                throw new MMDFileParseException(fieldName + " contains NaN or Infinity");
             }
         }
 

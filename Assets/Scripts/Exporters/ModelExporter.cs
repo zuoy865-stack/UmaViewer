@@ -22,34 +22,38 @@ public class ModelExporter
 
     public static void ExportModel(UmaContainerCharacter container, string path)
     {
-        container.SetDynamicBoneEnable(false);
-        container.EnablePhysics = false;
-        container.UmaFaceAnimator?.Rebind();
-        container.UmaAnimator?.Rebind();
-        container.EnableEyeTracking = false;
-        container.FaceDrivenKeyTarget?.FacialResetAll();
-        
+        PMXExportStateSnapshot stateSnapshot = new PMXExportStateSnapshot(container);
         try 
         {
-
+            stateSnapshot.FreezeForExport();
+            // PMX 与 VMD 共用同一套 MMD 默认 A-pose，避免导出当前动画帧或近似 T-pose。
+            stateSnapshot.ApplyMmdReferencePose();
+            container.FaceDrivenKeyTarget?.FacialResetAll();
             AddBlendShape(container);
             BuildBillboard(container);
 
             var textures = TextureExporter.ExportAllTexture(Path.GetDirectoryName(path), container.gameObject);
             var model = ReadPMXModel(container, textures, container.CharaEntry);
 
-            FileStream fileStream = new FileStream(path, FileMode.Create);
-            BinaryWriter writer = new BinaryWriter(fileStream);
-            var config = new ModelConfig() { GlobalToonPath = "Toon" };
-            PMXWriter.Write(writer, model, config);
-
-            writer.Close();
-            fileStream.Close();
+            using (FileStream fileStream = new FileStream(path, FileMode.Create))
+            using (BinaryWriter writer = new BinaryWriter(fileStream))
+            {
+                var config = new ModelConfig() { GlobalToonPath = "Toon" };
+                PMXWriter.Write(writer, model, config);
+            }
         }
         finally
         {
-            RemoveBillboard(container);
-            ClearBlendShape(container);
+            try
+            {
+                RemoveBillboard(container);
+                ClearBlendShape(container);
+            }
+            finally
+            {
+                // 临时导出资源清理失败时，也必须恢复角色的姿势和运行时组件。
+                stateSnapshot.Dispose();
+            }
         }
 
         UmaViewerUI.Instance.ShowMessage($"PMX Save at {path}", UIMessageType.Success);
@@ -88,56 +92,18 @@ public class ModelExporter
             model.Description = model.DescriptionEn = $"{container.gameObject.name}\n{modelInfo}";
         }
 
-        //Rean Bones
+        // 仅从蒙皮引用收集骨骼，避免把 Handle、Pole、Target 等运行时控制节点导出为 PMX 骨骼。
         var rootBone = container.transform.Find("Position");
         if (rootBone == null)
         {
             rootBone = container.transform;
         }
-        List<Transform> allBones = new List<Transform>(rootBone.GetComponentsInChildren<Transform>());
-        allBones.RemoveAll(o => o.name.Contains("Col_"));
-
-        // Filter bones for export
-        List<Transform> exportBones = new List<Transform>();
-        foreach(var bone in allBones)
-        {
-            bool isKeep = true;
-            string bName = bone.name;
-
-            // Keep Eyes
-            if(bName == "Eye_L" || bName == "Eye_R")
-            {
-                isKeep = true;
-            }
-            // Filter Facial details
-            else if (bName.StartsWith("Facial_") || 
-                     bName.StartsWith("Lip_") || 
-                     // bName.StartsWith("Jaw") || // Keep Jaw 
-                     // bName.Equals("Chin") ||       // Keep Chin (Explicitly check if it was being filtered, though it usually isn't unless under Facial)
-                     bName.StartsWith("Mouth_") || 
-                     // bName.StartsWith("Tongue_") || // Keep Tongue
-                     bName.StartsWith("Tooth_") ||
-                     bName.StartsWith("Cheek") ||
-                     bName.StartsWith("Eyelid") ||
-                     // [Fix] Remove extra Eye bones (e.g. Eye_High_L) to prevent double transformation/flying artifacts
-                     (bName.StartsWith("Eye_") && bName != "Eye_L" && bName != "Eye_R") ||
-                     bName.StartsWith("Nose") ||
-                     bName.StartsWith("Ear"))
-            {
-                isKeep = false;
-            }
-
-            if(isKeep)
-            {
-                exportBones.Add(bone);
-            }
-        }
+        List<Renderer> renderers = new List<Renderer>(container.GetComponentsInChildren<Renderer>());
+        PMXBoneExporter.Result boneResult = PMXBoneExporter.Build(rootBone, container.transform, renderers);
 
         //Read vertices And triangles
-        List<Renderer> renderers = new List<Renderer>(container.GetComponentsInChildren<Renderer>());
         List<int> triangles = new List<int>();
-        // Pass exportBones to ReadVerticesAndTriangles so it knows valid bones
-        model.Vertices = ReadVerticesAndTriangles(renderers, exportBones, ref triangles, container.transform);
+        model.Vertices = ReadVerticesAndTriangles(renderers, boneResult.BoneIndexes, ref triangles, container.transform);
         model.TriangleIndexes = triangles.ToArray();
 
         //Read Texture reference
@@ -147,7 +113,7 @@ public class ModelExporter
         }
 
         model.Parts = ReadPartMaterials(renderers, model);
-        model.Bones = ReadBones(exportBones);
+        model.Bones = boneResult.Bones;
         if(container is UmaContainerCharacter chara)
         {
             ClearBlendShape(chara);
@@ -277,7 +243,8 @@ public class ModelExporter
         //assuming base meshes do not have any blend shapes
         foreach (SkinnedMeshRenderer s in container.GetComponentsInChildren<SkinnedMeshRenderer>())
         {
-            if (s.name.Equals("M_Face") || s.name.Equals("M_Mayu") || s.name.Equals("M_Hair"))
+            if (s.name.Equals("M_Face") || s.name.Equals("M_Mayu") || s.name.Equals("M_Hair") ||
+                s.name.Equals("M_Mouth") || s.name.Equals("M_Eye"))
             {
                 s.sharedMesh.ClearBlendShapes();
             }
@@ -495,202 +462,6 @@ public class ModelExporter
         { "Mouth_OdorokiA", "□" }, // Box mouth?
     };
 
-    // Unity骨骼名 → MMD日文名の映射字典
-    // 与VMD导出时的骨骼名称完全对应（UseCenterAsParentOfAll=true时的默认映射）
-    private static readonly Dictionary<string, string> BoneNameMapping = new Dictionary<string, string>()
-    {
-        // 根骨骼和躯干（Position→センター, Hip→グルーブ 与VMD默认导出一致）
-        { "Position", "センター" },
-        { "Hip", "グルーブ" },
-        { "Spine", "上半身" },
-        { "Chest", "上半身2" },
-        { "Neck", "首" },
-        { "Head", "頭" },
-        // 左肩・腕
-        { "Shoulder_L", "左肩" },
-        { "Arm_L", "左腕" },
-        { "Elbow_L", "左ひじ" },
-        { "Wrist_L", "左手首" },
-        // 右肩・腕
-        { "Shoulder_R", "右肩" },
-        { "Arm_R", "右腕" },
-        { "Elbow_R", "右ひじ" },
-        { "Wrist_R", "右手首" },
-        // 左手指
-        { "Thumb_01_L", "左親指０" },
-        { "Thumb_02_L", "左親指１" },
-        { "Thumb_03_L", "左親指２" },
-        { "Index_01_L", "左人指１" },
-        { "Index_02_L", "左人指２" },
-        { "Index_03_L", "左人指３" },
-        { "Middle_01_L", "左中指１" },
-        { "Middle_02_L", "左中指２" },
-        { "Middle_03_L", "左中指３" },
-        { "Ring_01_L", "左薬指１" },
-        { "Ring_02_L", "左薬指２" },
-        { "Ring_03_L", "左薬指３" },
-        { "Pinky_01_L", "左小指１" },
-        { "Pinky_02_L", "左小指２" },
-        { "Pinky_03_L", "左小指３" },
-        // 右手指
-        { "Thumb_01_R", "右親指０" },
-        { "Thumb_02_R", "右親指１" },
-        { "Thumb_03_R", "右親指２" },
-        { "Index_01_R", "右人指１" },
-        { "Index_02_R", "右人指２" },
-        { "Index_03_R", "右人指３" },
-        { "Middle_01_R", "右中指１" },
-        { "Middle_02_R", "右中指２" },
-        { "Middle_03_R", "右中指３" },
-        { "Ring_01_R", "右薬指１" },
-        { "Ring_02_R", "右薬指２" },
-        { "Ring_03_R", "右薬指３" },
-        { "Pinky_01_R", "右小指１" },
-        { "Pinky_02_R", "右小指２" },
-        { "Pinky_03_R", "右小指３" },
-        // 左足
-        { "Thigh_L", "左足" },
-        { "Knee_L", "左ひざ" },
-        { "Ankle_L", "左足首" },
-        { "Toe_L", "左足先EX" },
-        // 右足
-        { "Thigh_R", "右足" },
-        { "Knee_R", "右ひざ" },
-        { "Ankle_R", "右足首" },
-        { "Toe_R", "右足先EX" },
-        // 目
-        { "Eye_L", "左目" },
-        { "Eye_R", "右目" },
-        // 耳・口
-        { "Ear_01_L", "左耳" },
-        { "Ear_02_L", "左耳1" },
-        { "Ear_03_L", "左耳2" },
-        { "Ear_01_R", "右耳" },
-        { "Ear_02_R", "右耳1" },
-        { "Ear_03_R", "右耳2" },
-        { "Mouth", "口" },
-        { "Jaw", "顎" },
-    };
-
-    private static Bone[] ReadBones(List<Transform> bonelist)
-    {
-        List<Bone> pmxbones = new List<Bone>();
-
-        // 记录特殊骨骼索引，用于后续添加「下半身」虚拟骨骼
-        int hipIndex = -1;
-        int leftThighIndex = -1;
-        int rightThighIndex = -1;
-
-        for (int i = 0; i < bonelist.Count; i++)
-        {
-            var bone = bonelist[i];
-            Bone pmxbone = new Bone();
-
-            // 应用骨骼名称映射：Unity英文名 → MMD日文名
-            if (BoneNameMapping.TryGetValue(bone.name, out string mappedName))
-            {
-                pmxbone.Name = mappedName;        // 日文名（MMD主名称）
-                pmxbone.NameEn = bone.name;       // 英文名（保留原始名称）
-            }
-            else
-            {
-                pmxbone.Name = pmxbone.NameEn = bone.name;
-            }
-
-            pmxbone.Position = bone.position;
-            pmxbone.ParentIndex = bonelist.IndexOf(bone.parent);
-            pmxbone.TransformLevel = 0;
-            pmxbone.Visible = true;
-            pmxbone.Movable = true;
-            pmxbone.Rotatable = true;
-            pmxbone.Controllable = true;
-            pmxbone.ChildBoneVal = new Bone.ChildBone()
-            {
-                ChildUseId = true,
-                Index = (bone.childCount > 0 ? bonelist.IndexOf(bone.GetChild(0)) : -1)
-            };
-            pmxbones.Add(pmxbone);
-
-            // 记录关键骨骼索引
-            if (bone.name == "Hip") hipIndex = i;
-            if (bone.name == "Thigh_L") leftThighIndex = i;
-            if (bone.name == "Thigh_R") rightThighIndex = i;
-        }
-
-        // [Fix] Enforce Chin -> Tongue -> Tongue_Out chain
-        // User requested explicit structure optimization: Chin -> Tongue -> Tongue_Out_01 -> Tongue_Out_02
-        
-        int chinIndex = pmxbones.FindIndex(b => b.NameEn == "Chin");
-        if (chinIndex == -1) chinIndex = pmxbones.FindIndex(b => b.NameEn.StartsWith("Jaw"));
-
-        if (chinIndex >= 0)
-        {
-            // 1. Link Root "Tongue" to Chin
-            int tongueIndex = pmxbones.FindIndex(b => b.NameEn == "Tongue");
-            if (tongueIndex >= 0)
-            {
-                pmxbones[tongueIndex].ParentIndex = chinIndex;
-
-                // 2. Link "Tongue_Out_01" to "Tongue"
-                int tongueOut01Index = pmxbones.FindIndex(b => b.NameEn == "Tongue_Out_01");
-                if (tongueOut01Index >= 0)
-                {
-                    pmxbones[tongueOut01Index].ParentIndex = tongueIndex;
-
-                    // 3. Link "Tongue_Out_02" to "Tongue_Out_01"
-                    int tongueOut02Index = pmxbones.FindIndex(b => b.NameEn == "Tongue_Out_02");
-                    if (tongueOut02Index >= 0)
-                    {
-                        pmxbones[tongueOut02Index].ParentIndex = tongueOut01Index;
-                    }
-                }
-            }
-            else
-            {
-                // Fallback: If no single "Tongue" bone, try to find "Tongue_01" or similar valid roots
-                for (int i = 0; i < pmxbones.Count; i++)
-                {
-                   if (pmxbones[i].NameEn.StartsWith("Tongue") && !pmxbones[i].NameEn.Contains("Out"))
-                   {
-                        // Treat as root tongue
-                        pmxbones[i].ParentIndex = chinIndex;
-                   }
-                }
-            }
-        }
-
-        // 添加「下半身」虚拟骨骼 — MMD标准骨骼中必须存在
-        // Uma模型没有独立的下半身骨骼，此骨骼位于Hip位置，作为大腿的父骨骼
-        if (hipIndex >= 0)
-        {
-            int lowerBodyIndex = pmxbones.Count;
-            Bone lowerBody = new Bone();
-            lowerBody.Name = "下半身";
-            lowerBody.NameEn = "LowerBody";
-            lowerBody.Position = pmxbones[hipIndex].Position; // 与グルーブ同位置
-            lowerBody.ParentIndex = hipIndex;                  // 父骨骼为グルーブ(Hip)
-            lowerBody.TransformLevel = 0;
-            lowerBody.Visible = true;
-            lowerBody.Movable = true;
-            lowerBody.Rotatable = true;
-            lowerBody.Controllable = true;
-            lowerBody.ChildBoneVal = new Bone.ChildBone()
-            {
-                ChildUseId = true,
-                Index = leftThighIndex >= 0 ? leftThighIndex : -1
-            };
-            pmxbones.Add(lowerBody);
-
-            // 将左右大腿的父骨骼从グルーブ(Hip)改为下半身
-            if (leftThighIndex >= 0)
-                pmxbones[leftThighIndex].ParentIndex = lowerBodyIndex;
-            if (rightThighIndex >= 0)
-                pmxbones[rightThighIndex].ParentIndex = lowerBodyIndex;
-        }
-
-        return pmxbones.ToArray();
-    }
-
     private static Part[] ReadPartMaterials(List<Renderer> renderers, RawMMDModel model)
     {
         List<Part> parts = new List<Part>();
@@ -748,7 +519,7 @@ public class ModelExporter
         return parts.ToArray();
     }
 
-    private static Vertex[] ReadVerticesAndTriangles(List<Renderer> renderers, List<Transform> bones, ref List<int> triangleList, Transform root)
+    private static Vertex[] ReadVerticesAndTriangles(List<Renderer> renderers, Dictionary<Transform, int> boneIndexes, ref List<int> triangleList, Transform root)
     {
         List<Vertex> verticesList = new List<Vertex>();
         int vertexOffset = 0;
@@ -796,7 +567,7 @@ public class ModelExporter
                     };
 
                     vertex.SkinningOperator = new SkinningOperator() { Type = SkinningType.SkinningBdef1 };
-                    vertex.SkinningOperator.Param = new Bdef1() { BoneId = bones.IndexOf(renderer.transform) };
+                    vertex.SkinningOperator.Param = new Bdef1() { BoneId = GetBoneIndex(boneIndexes, renderer.transform) };
                     vertex.EdgeScale = 1;
                     verticesList.Add(vertex);
                 }
@@ -857,13 +628,13 @@ public class ModelExporter
                     {
                         case 0:
                             vertex.SkinningOperator = new SkinningOperator() { Type = SkinningType.SkinningBdef1 };
-                            vertex.SkinningOperator.Param = new Bdef1() { BoneId = GetBoneIndex(bones, renderer.transform) };
+                            vertex.SkinningOperator.Param = new Bdef1() { BoneId = GetBoneIndex(boneIndexes, renderer.transform) };
                             break;
 
                         default:
                         case 1:
                             vertex.SkinningOperator = new SkinningOperator() { Type = SkinningType.SkinningBdef1 };
-                            vertex.SkinningOperator.Param = new Bdef1() { BoneId = GetBoneIndex(bones, skinbone[boneWeight.boneIndex0]) };
+                            vertex.SkinningOperator.Param = new Bdef1() { BoneId = GetBoneIndex(boneIndexes, skinbone[boneWeight.boneIndex0]) };
                             break;
 
                         case 2:
@@ -871,8 +642,8 @@ public class ModelExporter
                             vertex.SkinningOperator.Param = new Bdef2()
                             {
                                 BoneId = new int[]{
-                                    GetBoneIndex(bones, skinbone[boneWeight.boneIndex0]),
-                                    GetBoneIndex(bones, skinbone[boneWeight.boneIndex1]),
+                                    GetBoneIndex(boneIndexes, skinbone[boneWeight.boneIndex0]),
+                                    GetBoneIndex(boneIndexes, skinbone[boneWeight.boneIndex1]),
                                 },
                                 BoneWeight = boneWeight.weight0
                             };
@@ -884,10 +655,10 @@ public class ModelExporter
                             vertex.SkinningOperator.Param = new Bdef4()
                             {
                                 BoneId = new int[]{
-                                    GetBoneIndex(bones, skinbone[boneWeight.boneIndex0]),
-                                    GetBoneIndex(bones, skinbone[boneWeight.boneIndex1]),
-                                    GetBoneIndex(bones, skinbone[boneWeight.boneIndex2]),
-                                    GetBoneIndex(bones, skinbone[boneWeight.boneIndex3]),
+                                    GetBoneIndex(boneIndexes, skinbone[boneWeight.boneIndex0]),
+                                    GetBoneIndex(boneIndexes, skinbone[boneWeight.boneIndex1]),
+                                    GetBoneIndex(boneIndexes, skinbone[boneWeight.boneIndex2]),
+                                    GetBoneIndex(boneIndexes, skinbone[boneWeight.boneIndex3]),
                                 },
                                 BoneWeight = new float[]
                                 {
@@ -913,27 +684,20 @@ public class ModelExporter
         return verticesList.ToArray();
     }
 
-    private static int GetBoneIndex(List<Transform> bones, Transform bone)
+    private static int GetBoneIndex(Dictionary<Transform, int> boneIndexes, Transform bone)
     {
-        // Check if bone is in the list
-        if (bones.Contains(bone))
-        {
-            return bones.IndexOf(bone);
-        }
-        
-        // If not found (e.g. filtered out), try to find a parent that IS in the list
-        // This ensures weights are transferred to the parent (e.g. Head) instead of Root
-        Transform current = bone.parent;
+        // 被过滤骨的权重转交给最近的有效祖先，保证索引始终指向实际 PMX 骨骼。
+        Transform current = bone;
         while (current != null)
         {
-            if (bones.Contains(current))
+            if (boneIndexes.TryGetValue(current, out int index))
             {
-                return bones.IndexOf(current);
+                return index;
             }
             current = current.parent;
         }
 
-        // Fallback to 0 (Root) if no parent found
+        // 兜底到「全ての親」。
         return 0;
     }
 

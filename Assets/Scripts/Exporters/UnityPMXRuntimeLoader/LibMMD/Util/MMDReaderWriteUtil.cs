@@ -121,6 +121,23 @@ namespace LibMMD.Util
             writer.Write(-vector.z / amp);
         }
 
+        public static Vector3 ReadRawVector3(BinaryReader reader)
+        {
+            // IK 角度等非空间向量必须保留 PMX 文件中的原始分量和值域。
+            return new Vector3(
+                MathUtil.NanToZero(reader.ReadSingle()),
+                MathUtil.NanToZero(reader.ReadSingle()),
+                MathUtil.NanToZero(reader.ReadSingle()));
+        }
+
+        public static void WriteRawVector3(BinaryWriter writer, Vector3 vector)
+        {
+            // 不应用模型尺寸倍率或 Unity/PMX 坐标轴翻转。
+            writer.Write(vector.x);
+            writer.Write(vector.y);
+            writer.Write(vector.z);
+        }
+
 
         public static Vector3 ReadRawCoordinateVector3(BinaryReader reader)
         {

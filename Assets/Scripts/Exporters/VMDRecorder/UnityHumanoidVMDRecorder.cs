@@ -194,13 +194,11 @@ public class UnityHumanoidVMDRecorder : MonoBehaviour
         var state = animator.GetCurrentAnimatorStateInfo(0);
         animator.enabled = false;
 
-        // Set to T-Pose
+        // 先回到初始化姿势，再切换为 PMX 导出共用的 MMD 默认 A-pose。
         characterContainer.ResetBodyPose();
         characterContainer.UpBodyReset();
-
-        // A-Pose旋转已移除：Ghost在T-Pose初始化，与PMX导出的参考姿势一致
-        // BoneDictionary[BoneNames.左腕].Rotate(0, 0, -aposeDegress);
-        // BoneDictionary[BoneNames.右腕].Rotate(0, 0, aposeDegress);
+        BoneDictionary[BoneNames.左腕]?.Rotate(0, 0, -aposeDegress);
+        BoneDictionary[BoneNames.右腕]?.Rotate(0, 0, aposeDegress);
 
         SetInitialPositionAndRotation();
 
@@ -225,9 +223,9 @@ public class UnityHumanoidVMDRecorder : MonoBehaviour
         boneGhost = new BoneGhost(BoneDictionary, UseBottomCenter);
         morphRecorder = new MorphRecorder(transform);
 
-        // A-Pose恢复已移除（与上方对应）
-        // BoneDictionary[BoneNames.左腕].Rotate(0, 0, aposeDegress);
-        // BoneDictionary[BoneNames.右腕].Rotate(0, 0, -aposeDegress);
+        // Ghost 建立后撤销临时参考旋转，让 Animator 从原动画状态继续驱动角色。
+        BoneDictionary[BoneNames.左腕]?.Rotate(0, 0, aposeDegress);
+        BoneDictionary[BoneNames.右腕]?.Rotate(0, 0, -aposeDegress);
         animator.enabled = true;
         animator.Play(state.shortNameHash, 0, state.normalizedTime);
     }
