@@ -57,6 +57,8 @@ Currently only the default work mode is supported - you need to download assets 
 
 PMX exporter maintainers should also read [PMX Export Standard and Postmortem](docs/pmx-export-standard-and-postmortem.md).
 
+     脚本里面有错误的单词不要改! (Cy拼错一堆单词,我都无语了😓)
+
 ### Features
 
 ||||
