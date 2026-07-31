@@ -260,7 +260,7 @@ internal static class PMXBoneExporter
             CcdAngleLimit = 2.0f,
             IkLinks = new[]
             {
-                // 按 PMX 文件原始语义写负 X 区间；MMD Skin/Saba 会在求解器侧取反并交换上下限。
+                // 按 PMX 文件坐标语义使用负 X 区间，限制膝盖只向预期方向弯曲。
                 new Bone.IkLink { LinkIndex = indexes[knee], HasLimit = true, LoLimit = new Vector3(-Mathf.PI, 0, 0), HiLimit = new Vector3(-0.0087f, 0, 0) },
                 new Bone.IkLink { LinkIndex = indexes[thigh], HasLimit = false }
             }

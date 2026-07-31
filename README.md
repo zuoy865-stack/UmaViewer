@@ -55,6 +55,8 @@ Currently only the default work mode is supported - you need to download assets 
 1. Open the Assets/Scenes/Version2 scene.
    - note: If there are errors in the console, [JSON .NET For Unity](https://assetstore.unity.com/packages/tools/input-management/json-net-for-unity-11347) may be required
 
+PMX exporter maintainers should also read [PMX Export Standard and Postmortem](docs/pmx-export-standard-and-postmortem.md).
+
 ### Features
 
 ||||
