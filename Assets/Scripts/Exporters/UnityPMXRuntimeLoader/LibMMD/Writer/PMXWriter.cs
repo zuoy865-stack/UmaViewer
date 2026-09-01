@@ -75,13 +75,14 @@ namespace LibMMD.Writer
                 MMDReaderWriteUtil.WriteIndex(writer, joint.AssociatedRigidBodyIndex[0], pmxConfig.RigidBodyIndexSize);
                 MMDReaderWriteUtil.WriteIndex(writer, joint.AssociatedRigidBodyIndex[1], pmxConfig.RigidBodyIndexSize);
                 MMDReaderWriteUtil.WriteVector3(writer, joint.Position);
-                MMDReaderWriteUtil.WriteAmpVector3(writer, joint.Rotation, Mathf.Rad2Deg);
-                MMDReaderWriteUtil.WriteVector3(writer, joint.PositionLowLimit);
-                MMDReaderWriteUtil.WriteVector3(writer, joint.PositionHiLimit);
+                MMDReaderWriteUtil.WriteEulerRotation(writer, joint.Rotation);
+                MMDReaderWriteUtil.WritePositionLimitPair(
+                    writer, joint.PositionLowLimit, joint.PositionHiLimit);
                 // PMX Joint 角限制和旋转弹簧是原始轴分量，单位为弧度，不属于空间坐标。
                 MMDReaderWriteUtil.WriteRawVector3(writer, joint.RotationLowLimit);
                 MMDReaderWriteUtil.WriteRawVector3(writer, joint.RotationHiLimit);
-                MMDReaderWriteUtil.WriteVector3(writer, joint.SpringTranslate);
+                // 平移弹簧是各轴刚度，不是带模型尺寸的空间位置。
+                MMDReaderWriteUtil.WriteRawVector3(writer, joint.SpringTranslate);
                 MMDReaderWriteUtil.WriteRawVector3(writer, joint.SpringRotate);
             }
         }
@@ -100,7 +101,7 @@ namespace LibMMD.Writer
                 writer.Write((byte)rigidBody.Shape); // Shape
                 MMDReaderWriteUtil.WriteRawCoordinateVector3(writer, rigidBody.Dimemsions); // Dimemsions
                 MMDReaderWriteUtil.WriteVector3(writer, rigidBody.Position); // Position
-                MMDReaderWriteUtil.WriteAmpVector3(writer, rigidBody.Rotation, Mathf.Deg2Rad); // Rotation
+                MMDReaderWriteUtil.WriteEulerRotation(writer, rigidBody.Rotation); // Rotation
                 writer.Write(rigidBody.Mass); // Mass
                 writer.Write(rigidBody.TranslateDamp); // TranslateDamp
                 writer.Write(rigidBody.RotateDamp); // RotateDamp

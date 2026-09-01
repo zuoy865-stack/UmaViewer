@@ -799,7 +799,9 @@ public class UmaViewerUI : MonoBehaviour
     public void LoadPropPanel()
     {
         var pageentrys = new List<PageManager.Entry>();
-        foreach (var prop in Main.AbList.Where(a => a.Key.Contains("pfb_chr_prop") && !a.Key.Contains("clothes")))
+        foreach (var prop in Main.AbList
+            .Where(a => IsPreviewableProp(a.Key))
+            .OrderBy(a => a.Key, StringComparer.OrdinalIgnoreCase))
         {
             var pageentry = new PageManager.Entry();
             pageentry.Name = Path.GetFileName(prop.Key);
@@ -811,6 +813,26 @@ public class UmaViewerUI : MonoBehaviour
             pageentrys.Add(pageentry);
         }
         PropPageCtrl.Initialize(pageentrys, PropList);
+    }
+
+    private static bool IsPreviewableProp(string path)
+    {
+        if (string.IsNullOrEmpty(path) || path.IndexOf("clothes", StringComparison.OrdinalIgnoreCase) >= 0)
+            return false;
+
+        string fileName = Path.GetFileName(path);
+        if (!fileName.StartsWith("pfb_", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        // Legacy assets use pfb_chr_prop; newer hand-held assets may be filed under
+        // prop/item/accessory directories with different prefab names.
+        return path.IndexOf("/prop/", StringComparison.OrdinalIgnoreCase) >= 0 ||
+               path.IndexOf("/props/", StringComparison.OrdinalIgnoreCase) >= 0 ||
+               path.IndexOf("/item/", StringComparison.OrdinalIgnoreCase) >= 0 ||
+               path.IndexOf("/accessory/", StringComparison.OrdinalIgnoreCase) >= 0 ||
+               fileName.IndexOf("prop", StringComparison.OrdinalIgnoreCase) >= 0 ||
+               fileName.IndexOf("item", StringComparison.OrdinalIgnoreCase) >= 0 ||
+               fileName.IndexOf("accessory", StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
     public void LoadMapPanel()

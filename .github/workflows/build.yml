@@ -23,7 +23,8 @@ concurrency:
 jobs:
   build:
     name: Windows x64 IL2CPP
-    runs-on: windows-2022
+    # unity-builder@v4 uses a Docker-based Unity image, so it must run on Linux.
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
 
     steps:

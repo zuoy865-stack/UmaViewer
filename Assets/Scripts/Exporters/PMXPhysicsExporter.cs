@@ -6,23 +6,25 @@ using System.Linq;
 using UnityEngine;
 
 /// <summary>
-/// 将 CySpring 头发、耳朵、尾巴与裙摆骨骼转换为 PMX 2.0 原生刚体与 Joint。
+/// 将 CySpring 头发、耳朵、尾巴等物理骨骼链转换为 PMX 2.0 原生刚体与 Joint。
+/// 严格基于骨骼局部坐标空间计算刚体姿态，消除全局增量误差与自旋偏差。
 /// </summary>
 internal static class PMXPhysicsExporter
 {
-    // 首版使用独立组并关闭组内碰撞，避免没有身体碰撞体时发束互相挤压。
-    private const int DynamicCollisionGroup = 3;
-    private const int BodyCollisionGroup = 2;
-    private const int SkirtCollisionGroup = 4;
-    private const float DefaultRadius = 0.018f;
-    private const float MinimumRadius = 0.006f;
-    private const float MaximumRadius = 0.045f;
-    private const float MinimumSegmentLength = 0.004f;
-    private const float CapsuleThreshold = 2.5f;
-    // 尾巴主要依靠弹簧回到导出时的静止姿态，宽角度范围仅用于防止关节翻转。
+    // 碰撞组定义：使用独立组并关闭组内碰撞，避免受 Joint 约束的相邻刚体互相挤压
+    internal const int DynamicCollisionGroup = 3;
+    internal const int TailBodyCollisionGroup = 2;
+    internal const int SkirtCollisionGroup = 4;
+    internal const int SkirtLegCollisionGroup = 5;
+
+    internal const float DefaultRadius = 0.018f;
+    internal const float MinimumRadius = 0.006f;
+    internal const float MaximumRadius = 0.045f;
+    internal const float MinimumSegmentLength = 0.004f;
+
+    // 尾巴摆幅与弹簧参数
     private const float TailFreeBendDegrees = 75f;
     private const float TailFreeTwistDegrees = 30f;
-    private const float TailRootXRestOffsetDegrees = 15f;
     private const float TailRootBendSpring = 12f;
     private const float TailTipBendSpring = 4f;
     private const float TailRootTwistSpring = 4f;
@@ -30,17 +32,9 @@ internal static class PMXPhysicsExporter
     private const float TailColliderClearanceMultiplier = 1.5f;
     private const float TailColliderMinimumRadiusMultiplier = 1.25f;
     private const float TailColliderMaximumRadius = 0.12f;
-    private const float SkirtMinimumPanelHalfWidth = 0.012f;
-    private const float SkirtMaximumPanelHalfWidth = 0.08f;
-    private const float SkirtMinimumPanelHalfThickness = 0.004f;
-    private const float SkirtMaximumPanelHalfThickness = 0.016f;
-    private const float SkirtVerticalBendDegrees = 16f;
-    private const float SkirtVerticalTwistDegrees = 6f;
-    private const float SkirtHorizontalBendDegrees = 7f;
-    private const float SkirtHorizontalTwistDegrees = 4f;
 
-    // 普通发束和尾巴减少摆幅，同时保留可见的延迟跟随。
-    private static readonly PhysicsPreset DefaultPreset = new PhysicsPreset
+    // 普通发束物理预设
+    internal static readonly PhysicsPreset DefaultPreset = new PhysicsPreset
     {
         RootMass = 0.8f,
         TipMass = 0.25f,
@@ -54,8 +48,8 @@ internal static class PMXPhysicsExporter
         TwistSpring = 5f
     };
 
-    // 耳朵应接近短而硬的附属骨，单独限制角度并加快回正。
-    private static readonly PhysicsPreset EarPreset = new PhysicsPreset
+    // 耳朵物理预设：硬附属骨，限制小角度快速回正
+    internal static readonly PhysicsPreset EarPreset = new PhysicsPreset
     {
         RootMass = 0.65f,
         TipMass = 0.3f,
@@ -69,8 +63,8 @@ internal static class PMXPhysicsExporter
         TwistSpring = 9f
     };
 
-    // 尾根保留支撑，中后段降低阻尼与弹簧，避免整条尾巴像一根硬杆。
-    private static readonly PhysicsPreset TailPreset = new PhysicsPreset
+    // 尾巴物理预设
+    internal static readonly PhysicsPreset TailPreset = new PhysicsPreset
     {
         RootMass = 0.9f,
         TipMass = 0.28f,
@@ -84,8 +78,8 @@ internal static class PMXPhysicsExporter
         TwistSpring = TailRootTwistSpring
     };
 
-    // 裙摆需要比发束更高的阻尼，并通过横向关节保持连续布片形状。
-    private static readonly PhysicsPreset SkirtPreset = new PhysicsPreset
+    // 裙摆物理预设
+    internal static readonly PhysicsPreset SkirtPreset = new PhysicsPreset
     {
         RootMass = 0.7f,
         TipMass = 0.3f,
@@ -93,13 +87,13 @@ internal static class PMXPhysicsExporter
         TipTranslateDamp = 0.92f,
         RootRotateDamp = 0.86f,
         TipRotateDamp = 0.95f,
-        BendLimitDegrees = SkirtVerticalBendDegrees,
-        TwistLimitDegrees = SkirtVerticalTwistDegrees,
+        BendLimitDegrees = 16f,
+        TwistLimitDegrees = 6f,
         BendSpring = 22f,
         TwistSpring = 9f
     };
 
-    private sealed class PhysicsPreset
+    internal sealed class PhysicsPreset
     {
         internal float RootMass;
         internal float TipMass;
@@ -137,22 +131,9 @@ internal static class PMXPhysicsExporter
         internal bool IsCheckLeftLeg;
     }
 
-    private sealed class SkirtSegment
-    {
-        internal Transform Bone;
-        internal Transform Child;
-        internal int ColumnIndex;
-        internal int RowIndex;
-        internal int RigidIndex;
-        internal Vector3 Start;
-        internal Vector3 End;
-        internal Vector3 Center;
-        internal Vector3 Rotation;
-        internal float Length;
-        internal float HalfWidth;
-        internal float HalfThickness;
-    }
-
+    /// <summary>
+    /// 解析角色中的物理链与裙摆数据。
+    /// </summary>
     internal static Context Prepare(UmaContainerCharacter character, Transform skeletonRoot)
     {
         Context context = new Context();
@@ -160,11 +141,14 @@ internal static class PMXPhysicsExporter
             return context;
 
         Transform[] hierarchy = skeletonRoot.GetComponentsInChildren<Transform>(true);
-        HashSet<Transform> claimedRoots = new HashSet<Transform>();
+        HashSet<Transform> claimedBones = new HashSet<Transform>();
         context.SkirtController = character.GetComponent<SkirtController>() ??
                                   character.GetComponentInChildren<SkirtController>(true);
-        CollectSkirtColumns(character, skeletonRoot, context, claimedRoots);
 
+        // 优先收集裙摆网格列
+        PMXSkirtPhysicsExporter.CollectSkirtColumns(character, skeletonRoot, context, claimedBones);
+
+        // 遍历 CySpring 容器收集头发、耳朵、尾巴链
         foreach (CySpringDataContainer container in character.cySpringDataContainers)
         {
             if (container == null || container.springParam == null) continue;
@@ -172,9 +156,15 @@ internal static class PMXPhysicsExporter
             foreach (CySpringParamDataElement element in container.springParam)
             {
                 if (!IsLinearPhysicsElement(container, element)) continue;
-                Chain chain = BuildChain(element, hierarchy);
-                if (chain == null || !claimedRoots.Add(chain.Root)) continue;
 
+                // 若该骨骼已被上游链或裙摆占用，跳过以避免生成重复重叠子链
+                Transform root = FindRootTransform(element._boneName, hierarchy);
+                if (root == null || claimedBones.Contains(root)) continue;
+
+                Chain chain = BuildChain(element, root, claimedBones);
+                if (chain == null || chain.Bones.Count == 0) continue;
+
+                claimedBones.UnionWith(chain.Bones);
                 context.Chains.Add(chain);
                 context.DynamicBones.UnionWith(chain.Bones);
             }
@@ -183,6 +173,9 @@ internal static class PMXPhysicsExporter
         return context;
     }
 
+    /// <summary>
+    /// 构建所有 PMX 刚体与 Joint。
+    /// </summary>
     internal static void Build(Context context, Transform coordinateRoot, PMXBoneExporter.Result boneResult,
         RawMMDModel model)
     {
@@ -194,17 +187,24 @@ internal static class PMXPhysicsExporter
         {
             BuildChainPhysics(chain, coordinateRoot, boneResult, rigidBodies, joints, dynamicRigidIndexes);
         }
-        BuildSkirtPhysics(context, coordinateRoot, boneResult, rigidBodies, joints, dynamicRigidIndexes);
 
-        MarkPostPhysicsBones(dynamicRigidIndexes.Keys, boneResult);
+        PMXSkirtPhysicsExporter.BuildSkirtPhysics(
+            context, coordinateRoot, boneResult, rigidBodies, joints, dynamicRigidIndexes);
+
         Validate(rigidBodies, joints, boneResult.Bones.Length);
         model.Rigidbodies = rigidBodies.ToArray();
         model.Joints = joints.ToArray();
     }
 
-    private static Chain BuildChain(CySpringParamDataElement element, Transform[] hierarchy)
+    private static Transform FindRootTransform(string boneName, Transform[] hierarchy)
     {
-        if (element == null || string.IsNullOrEmpty(element._boneName)) return null;
+        if (string.IsNullOrEmpty(boneName)) return null;
+        return hierarchy.FirstOrDefault(t => string.Equals(t.name, boneName, StringComparison.Ordinal));
+    }
+
+    private static Chain BuildChain(CySpringParamDataElement element, Transform root, HashSet<Transform> claimedBones)
+    {
+        if (element == null || root == null) return null;
 
         Dictionary<string, float> configuredBones = new Dictionary<string, float>(StringComparer.Ordinal);
         configuredBones[element._boneName] = SanitizeRadius(element._collisionRadius);
@@ -217,131 +217,31 @@ internal static class PMXPhysicsExporter
             }
         }
 
-        // 同名节点存在时，选择能覆盖最多配置子骨的候选根，避免绑定到附件或辅助节点。
-        Transform root = hierarchy
-            .Where(t => string.Equals(t.name, element._boneName, StringComparison.Ordinal))
-            .OrderByDescending(t => CountConfiguredDescendants(t, configuredBones))
-            .FirstOrDefault();
-        if (root == null) return null;
-
         Chain chain = new Chain
         {
             Root = root,
-            // 使用整条配置链判断，兼容根骨名称不含部位、子骨才带 ear/mimi 的模型。
             IsEar = configuredBones.Keys.Any(IsEarBoneName),
             IsTail = configuredBones.Keys.Any(IsTailBoneName)
         };
-        CollectContinuousBones(root, configuredBones, chain);
+
+        CollectContinuousBones(root, configuredBones, chain, claimedBones);
         return chain.Bones.Count > 0 ? chain : null;
     }
 
-    private static void CollectSkirtColumns(UmaContainerCharacter character, Transform skeletonRoot,
-        Context context, HashSet<Transform> claimedRoots)
-    {
-        SkirtController controller = context.SkirtController;
-        if (controller == null || controller.SkirtDataArray == null) return;
-
-        foreach (SkirtController.SkirtData skirtData in controller.SkirtDataArray)
-        {
-            if (skirtData == null || skirtData.SkirtRoot == null || skirtData.SkirtChild == null) continue;
-            if (skirtData.SkirtRoot != skeletonRoot && !skirtData.SkirtRoot.IsChildOf(skeletonRoot)) continue;
-            if (claimedRoots.Contains(skirtData.SkirtRoot)) continue;
-
-            Chain bestChain = null;
-            foreach (CySpringDataContainer container in character.cySpringDataContainers)
-            {
-                if (container == null || container.springParam == null) continue;
-                foreach (CySpringParamDataElement element in container.springParam)
-                {
-                    if (element == null || !string.Equals(
-                            element._boneName, skirtData.SkirtRoot.name, StringComparison.Ordinal)) continue;
-
-                    Chain candidate = BuildChainFromRoot(element, skirtData.SkirtRoot);
-                    if (candidate == null || !candidate.Bones.Contains(skirtData.SkirtChild) ||
-                        !IsStrictLinearChain(candidate, skirtData.SkirtChild)) continue;
-                    if (bestChain == null || candidate.Bones.Count > bestChain.Bones.Count) bestChain = candidate;
-                }
-            }
-
-            if (bestChain == null) continue;
-            claimedRoots.Add(bestChain.Root);
-            context.SkirtColumns.Add(new SkirtColumn
-            {
-                Chain = bestChain,
-                IsCheckRightLeg = skirtData.IsCheckRightLeg,
-                IsCheckLeftLeg = skirtData.IsCheckLeftLeg
-            });
-
-            foreach (Transform bone in bestChain.Bones)
-            {
-                // 裙摆末端即使没有蒙皮权重，也决定上一节骨的末端指向和整条物理链的完整性。
-                // 此处的骨骼已经通过 SkirtController、CySpring 与严格线性链三重校验，可以安全保留。
-                context.DynamicBones.Add(bone);
-            }
-        }
-    }
-
-    private static Chain BuildChainFromRoot(CySpringParamDataElement element, Transform root)
-    {
-        if (element == null || root == null ||
-            !string.Equals(element._boneName, root.name, StringComparison.Ordinal)) return null;
-
-        Dictionary<string, float> configuredBones = new Dictionary<string, float>(StringComparer.Ordinal)
-        {
-            [element._boneName] = SanitizeRadius(element._collisionRadius)
-        };
-        if (element._childElements != null)
-        {
-            foreach (CySpringParamDataChildElement child in element._childElements)
-            {
-                if (child != null && !string.IsNullOrEmpty(child._boneName))
-                    configuredBones[child._boneName] = SanitizeRadius(child._collisionRadius);
-            }
-        }
-
-        Chain chain = new Chain { Root = root };
-        CollectContinuousBones(root, configuredBones, chain);
-        return chain.Bones.Count > 0 ? chain : null;
-    }
-
-    private static bool IsStrictLinearChain(Chain chain, Transform expectedFirstChild)
-    {
-        if (chain == null || chain.Root == null || expectedFirstChild == null) return false;
-
-        Transform current = chain.Root;
-        int visited = 0;
-        bool foundExpectedChild = false;
-        while (current != null && chain.Bones.Contains(current))
-        {
-            visited++;
-            Transform next = GetSingleChainChild(current, chain.Bones);
-            if (current == chain.Root) foundExpectedChild = next == expectedFirstChild;
-            if (next == null) break;
-            current = next;
-        }
-        return foundExpectedChild && visited == chain.Bones.Count && visited >= 2;
-    }
-
-    private static void CollectContinuousBones(Transform bone, Dictionary<string, float> configuredBones, Chain chain)
+    internal static void CollectContinuousBones(Transform bone, Dictionary<string, float> configuredBones,
+        Chain chain, HashSet<Transform> claimedBones = null)
     {
         if (!configuredBones.TryGetValue(bone.name, out float radius)) return;
+        if (claimedBones != null && claimedBones.Contains(bone)) return;
 
         chain.Bones.Add(bone);
         chain.Radii[bone] = radius;
         for (int i = 0; i < bone.childCount; i++)
         {
             Transform child = bone.GetChild(i);
-            // 只沿真实父子关系前进，配置中间缺节点时绝不跨越连接。
-            if (configuredBones.ContainsKey(child.name)) CollectContinuousBones(child, configuredBones, chain);
+            if (configuredBones.ContainsKey(child.name))
+                CollectContinuousBones(child, configuredBones, chain, claimedBones);
         }
-    }
-
-    private static int CountConfiguredDescendants(Transform root, Dictionary<string, float> configuredBones)
-    {
-        int count = configuredBones.ContainsKey(root.name) ? 1 : 0;
-        for (int i = 0; i < root.childCount; i++)
-            count += CountConfiguredDescendants(root.GetChild(i), configuredBones);
-        return count;
     }
 
     private static void BuildChainPhysics(Chain chain, Transform coordinateRoot, PMXBoneExporter.Result boneResult,
@@ -354,7 +254,17 @@ internal static class PMXPhysicsExporter
         Transform anchorBone = FindNearestExportedParentTransform(chain.Root.parent, boneResult.BoneIndexes);
         int anchorBoneIndex = anchorBone != null ? boneResult.BoneIndexes[anchorBone] : 0;
         int anchorIndex = rigidBodies.Count;
-        rigidBodies.Add(CreateAnchorBody(chain, coordinateRoot, anchorBoneIndex));
+
+        // 提取发根相对于模型基准坐标系的旋转
+        Quaternion rootBoneWorldRot = Quaternion.Inverse(coordinateRoot.rotation) * chain.Root.rotation;
+        Transform firstChild = GetChainChildren(chain.Root, chain.Bones).FirstOrDefault();
+        Vector3 localDirToChild = firstChild != null
+            ? chain.Root.InverseTransformPoint(firstChild.position)
+            : Vector3.down;
+        if (localDirToChild.sqrMagnitude < 0.000001f) localDirToChild = Vector3.down;
+
+        Quaternion anchorRotation = rootBoneWorldRot * Quaternion.FromToRotation(Vector3.up, localDirToChild.normalized);
+        rigidBodies.Add(CreateAnchorBody(chain, coordinateRoot, anchorBoneIndex, ConvertUnityRotationToWriterEuler(anchorRotation)));
 
         if (chain.IsTail)
         {
@@ -372,417 +282,143 @@ internal static class PMXPhysicsExporter
             if (!boneResult.BoneIndexes.TryGetValue(bone, out int boneIndex) || dynamicRigidIndexes.ContainsKey(bone))
                 continue;
 
-            Transform child = GetSingleChainChild(bone, chain.Bones);
+            List<Transform> children = GetChainChildren(bone, chain.Bones);
+            Transform singleChild = children.Count > 0 ? children[0] : null;
+
             float depthRatio = maximumDepth > 0
                 ? Mathf.Clamp01((GetDepth(bone) - GetDepth(chain.Root)) / (float)maximumDepth)
                 : 1f;
             int rigidIndex = rigidBodies.Count;
-            rigidBodies.Add(CreateDynamicBody(
-                bone, child, chain.Radii[bone], depthRatio, coordinateRoot, boneIndex, preset));
+
+            // 严格基于骨骼自身局部空间计算胶囊体刚体朝向与中心
+            MMDRigidBody dynamicBody = CreateDynamicBodyLocalSpace(
+                bone, singleChild, chain.Radii[bone], depthRatio, coordinateRoot, boneIndex, preset, chain.Bones);
+            rigidBodies.Add(dynamicBody);
             dynamicRigidIndexes[bone] = rigidIndex;
 
-            int parentRigidIndex = bone == chain.Root
+            int parentRigidIndex = (bone == chain.Root)
                 ? anchorIndex
                 : FindParentRigidIndex(bone.parent, chain.Bones, dynamicRigidIndexes, anchorIndex);
+
             float bendSpring = chain.IsTail
                 ? Mathf.Lerp(TailRootBendSpring, TailTipBendSpring, depthRatio)
                 : preset.BendSpring;
             float twistSpring = chain.IsTail
                 ? Mathf.Lerp(TailRootTwistSpring, TailTipTwistSpring, depthRatio)
                 : preset.TwistSpring;
+
+            // Joint 锚点严格对齐骨骼节点位置，旋转与刚体局部空间物理姿态精确同步
             joints.Add(CreateJoint(
                 bone, coordinateRoot, parentRigidIndex, rigidIndex,
-                jointBendLimit, jointTwistLimit, bendSpring, twistSpring,
-                chain.IsTail && bone == chain.Root));
+                dynamicBody.Rotation, jointBendLimit, jointTwistLimit, bendSpring, twistSpring));
         }
     }
 
-    private static void BuildSkirtPhysics(Context context, Transform coordinateRoot,
-        PMXBoneExporter.Result boneResult, List<MMDRigidBody> rigidBodies, List<MMDJoint> joints,
-        Dictionary<Transform, int> dynamicRigidIndexes)
+    /// <summary>
+    /// 严格基于骨骼本地坐标系构建刚体，消除跨骨段增量误差，并支持末端叶骨切线平滑延伸。
+    /// </summary>
+    private static MMDRigidBody CreateDynamicBodyLocalSpace(Transform bone, Transform child, float configuredRadius,
+        float depthRatio, Transform coordinateRoot, int boneIndex, PhysicsPreset preset, HashSet<Transform> chainBones)
     {
-        if (context.SkirtController == null || context.SkirtColumns.Count < 3) return;
+        Vector3 start = coordinateRoot.InverseTransformPoint(bone.position);
+        Quaternion boneRotInCoord = Quaternion.Inverse(coordinateRoot.rotation) * bone.rotation;
 
-        List<SkirtColumn> columns = OrderSkirtColumns(context.SkirtColumns, context.SkirtController, coordinateRoot);
-        List<List<SkirtSegment>> segmentsByColumn = new List<List<SkirtSegment>>();
-        for (int columnIndex = 0; columnIndex < columns.Count; columnIndex++)
+        if (child != null)
         {
-            List<Transform> bones = GetOrderedLinearBones(columns[columnIndex].Chain);
-            List<SkirtSegment> segments = new List<SkirtSegment>();
-            for (int rowIndex = 0; rowIndex + 1 < bones.Count; rowIndex++)
-            {
-                Transform bone = bones[rowIndex];
-                Transform child = bones[rowIndex + 1];
-                if (!boneResult.BoneIndexes.ContainsKey(bone)) break;
+            // 有子骨段：在骨骼局部空间求出指向子骨的局部方向
+            Vector3 localChildPos = bone.InverseTransformPoint(child.position);
+            float length = localChildPos.magnitude;
+            Vector3 localDir = length > 0.000001f ? localChildPos / length : Vector3.down;
 
-                Vector3 start = coordinateRoot.InverseTransformPoint(bone.position);
-                Vector3 end = coordinateRoot.InverseTransformPoint(child.position);
-                float length = Vector3.Distance(start, end);
-                if (!IsFinite(length) || length <= MinimumSegmentLength) break;
+            Quaternion localAlign = Quaternion.FromToRotation(Vector3.up, localDir);
+            Quaternion capsuleRot = boneRotInCoord * localAlign;
 
-                segments.Add(new SkirtSegment
-                {
-                    Bone = bone,
-                    Child = child,
-                    ColumnIndex = columnIndex,
-                    RowIndex = rowIndex,
-                    Start = start,
-                    End = end,
-                    Center = (start + end) * 0.5f,
-                    Length = length,
-                    RigidIndex = -1
-                });
-            }
-            segmentsByColumn.Add(segments);
+            Vector3 position = coordinateRoot.InverseTransformPoint(bone.TransformPoint(localChildPos * 0.5f));
+            float radius = Mathf.Clamp(configuredRadius, MinimumRadius, MaximumRadius);
+            if (length > MinimumSegmentLength)
+                radius = Mathf.Min(radius, Mathf.Max(MinimumRadius, length * 0.28f));
+
+            float cylinderLength = GetCapsuleCylinderLength(length, radius);
+            Vector3 rotationEuler = ConvertUnityRotationToWriterEuler(capsuleRot);
+
+            return CreateCapsuleBody(bone.name, boneIndex, radius, cylinderLength, position, rotationEuler, depthRatio, preset);
         }
 
-        // 少于三列或任意列没有有效首段时无法建立稳定的裙摆网格。
-        if (segmentsByColumn.Count < 3 || segmentsByColumn.Any(segments => segments.Count == 0)) return;
-
-        bool closeRing = IsClosedSkirtRing(columns, context.SkirtController, coordinateRoot);
-        for (int columnIndex = 0; columnIndex < columns.Count; columnIndex++)
+        // 末端叶骨（无子骨）：沿父骨到当前骨的局部切线方向延伸包裹发梢
+        if (bone.parent != null && chainBones.Contains(bone.parent))
         {
-            List<SkirtSegment> segments = segmentsByColumn[columnIndex];
-            for (int rowIndex = 0; rowIndex < segments.Count; rowIndex++)
-            {
-                SkirtSegment segment = segments[rowIndex];
-                Vector3 tangent = CalculateSkirtTangent(segmentsByColumn, columnIndex, rowIndex, closeRing);
-                segment.HalfWidth = EstimateSkirtPanelHalfWidth(
-                    segmentsByColumn, columnIndex, rowIndex, closeRing);
-                float configuredRadius = columns[columnIndex].Chain.Radii[segment.Bone];
-                segment.HalfThickness = Mathf.Clamp(
-                    configuredRadius * 0.55f,
-                    SkirtMinimumPanelHalfThickness,
-                    SkirtMaximumPanelHalfThickness);
-                segment.Rotation = CalculatePanelRotation(segment.End - segment.Start, tangent);
-            }
+            Transform parentBone = bone.parent;
+            Vector3 worldDirFromParent = bone.position - parentBone.position;
+            float parentDist = worldDirFromParent.magnitude;
+
+            Vector3 localDir = bone.InverseTransformDirection(worldDirFromParent);
+            if (localDir.sqrMagnitude < 0.000001f) localDir = Vector3.down;
+            else localDir.Normalize();
+
+            Quaternion localAlign = Quaternion.FromToRotation(Vector3.up, localDir);
+            Quaternion capsuleRot = boneRotInCoord * localAlign;
+
+            float length = Mathf.Clamp(parentDist * 0.6f, MinimumSegmentLength, MaximumRadius * 2.5f);
+            float radius = Mathf.Clamp(configuredRadius, MinimumRadius, MaximumRadius);
+            radius = Mathf.Min(radius, Mathf.Max(MinimumRadius, length * 0.32f));
+
+            Vector3 centerWorld = bone.position + (worldDirFromParent.normalized * (length * 0.5f));
+            Vector3 position = coordinateRoot.InverseTransformPoint(centerWorld);
+            float cylinderLength = GetCapsuleCylinderLength(length, radius);
+            Vector3 rotationEuler = ConvertUnityRotationToWriterEuler(capsuleRot);
+
+            return CreateCapsuleBody(bone.name, boneIndex, radius, cylinderLength, position, rotationEuler, depthRatio, preset);
         }
 
-        for (int columnIndex = 0; columnIndex < columns.Count; columnIndex++)
-        {
-            SkirtColumn column = columns[columnIndex];
-            List<SkirtSegment> segments = segmentsByColumn[columnIndex];
-            Transform anchorBone = FindNearestExportedParentTransform(column.Chain.Root.parent, boneResult.BoneIndexes);
-            int anchorBoneIndex = anchorBone != null ? boneResult.BoneIndexes[anchorBone] : 0;
-            int parentRigidIndex = rigidBodies.Count;
-            rigidBodies.Add(CreateSkirtAnchorBody(column, coordinateRoot, anchorBoneIndex));
-
-            for (int rowIndex = 0; rowIndex < segments.Count; rowIndex++)
-            {
-                SkirtSegment segment = segments[rowIndex];
-                float depthRatio = segments.Count > 1 ? rowIndex / (float)(segments.Count - 1) : 0f;
-                int boneIndex = boneResult.BoneIndexes[segment.Bone];
-                segment.RigidIndex = rigidBodies.Count;
-                rigidBodies.Add(CreateSkirtPanelBody(segment, boneIndex, depthRatio));
-                dynamicRigidIndexes[segment.Bone] = segment.RigidIndex;
-                joints.Add(CreateSkirtVerticalJoint(segment, parentRigidIndex, depthRatio));
-                parentRigidIndex = segment.RigidIndex;
-            }
-        }
-
-        int commonRowCount = segmentsByColumn.Min(segments => segments.Count);
-        int horizontalConnectionCount = closeRing ? columns.Count : columns.Count - 1;
-        for (int rowIndex = 0; rowIndex < commonRowCount; rowIndex++)
-        {
-            for (int columnIndex = 0; columnIndex < horizontalConnectionCount; columnIndex++)
-            {
-                SkirtSegment a = segmentsByColumn[columnIndex][rowIndex];
-                SkirtSegment b = segmentsByColumn[(columnIndex + 1) % columns.Count][rowIndex];
-                joints.Add(CreateSkirtHorizontalJoint(a, b));
-            }
-        }
-
-        AddSkirtLegColliders(
-            context.SkirtController, columns, coordinateRoot, boneResult.BoneIndexes, rigidBodies);
-    }
-
-    private static List<Transform> GetOrderedLinearBones(Chain chain)
-    {
-        List<Transform> result = new List<Transform>();
-        Transform current = chain.Root;
-        while (current != null && chain.Bones.Contains(current))
-        {
-            result.Add(current);
-            current = GetSingleChainChild(current, chain.Bones);
-        }
-        return result;
-    }
-
-    private static List<SkirtColumn> OrderSkirtColumns(IEnumerable<SkirtColumn> columns,
-        SkirtController controller, Transform coordinateRoot)
-    {
-        List<SkirtColumn> result = columns.ToList();
-        Vector3 center = controller.CenterBone != null
-            ? coordinateRoot.InverseTransformPoint(controller.CenterBone.position)
-            : result.Aggregate(Vector3.zero, (sum, column) =>
-                sum + coordinateRoot.InverseTransformPoint(column.Chain.Root.position)) / result.Count;
-
-        return result.OrderBy(column =>
-        {
-            Vector3 position = coordinateRoot.InverseTransformPoint(column.Chain.Root.position) - center;
-            return Mathf.Atan2(position.z, position.x);
-        }).ToList();
-    }
-
-    private static bool IsClosedSkirtRing(IList<SkirtColumn> columns, SkirtController controller,
-        Transform coordinateRoot)
-    {
-        if (columns.Count < 3) return false;
-        Vector3 center = controller.CenterBone != null
-            ? coordinateRoot.InverseTransformPoint(controller.CenterBone.position)
-            : columns.Aggregate(Vector3.zero, (sum, column) =>
-                sum + coordinateRoot.InverseTransformPoint(column.Chain.Root.position)) / columns.Count;
-        List<float> angles = columns.Select(column =>
-        {
-            Vector3 position = coordinateRoot.InverseTransformPoint(column.Chain.Root.position) - center;
-            return Mathf.Atan2(position.z, position.x);
-        }).OrderBy(angle => angle).ToList();
-
-        float maximumGap = 0f;
-        for (int i = 0; i < angles.Count; i++)
-        {
-            float next = i + 1 < angles.Count ? angles[i + 1] : angles[0] + Mathf.PI * 2f;
-            maximumGap = Mathf.Max(maximumGap, next - angles[i]);
-        }
-        float averageGap = Mathf.PI * 2f / angles.Count;
-        return maximumGap <= Mathf.Min(averageGap * 2.25f, 150f * Mathf.Deg2Rad);
-    }
-
-    private static Vector3 CalculateSkirtTangent(IList<List<SkirtSegment>> columns,
-        int columnIndex, int rowIndex, bool closeRing)
-    {
-        SkirtSegment current = columns[columnIndex][rowIndex];
-        SkirtSegment previous = GetNeighborSkirtSegment(columns, columnIndex - 1, rowIndex, closeRing);
-        SkirtSegment next = GetNeighborSkirtSegment(columns, columnIndex + 1, rowIndex, closeRing);
-        if (previous != null && next != null) return next.Center - previous.Center;
-        if (next != null) return next.Center - current.Center;
-        if (previous != null) return current.Center - previous.Center;
-        return Vector3.right;
-    }
-
-    private static float EstimateSkirtPanelHalfWidth(IList<List<SkirtSegment>> columns,
-        int columnIndex, int rowIndex, bool closeRing)
-    {
-        SkirtSegment current = columns[columnIndex][rowIndex];
-        SkirtSegment previous = GetNeighborSkirtSegment(columns, columnIndex - 1, rowIndex, closeRing);
-        SkirtSegment next = GetNeighborSkirtSegment(columns, columnIndex + 1, rowIndex, closeRing);
-        float spacing = 0f;
-        int sampleCount = 0;
-        if (previous != null)
-        {
-            spacing += Vector3.Distance(current.Center, previous.Center);
-            sampleCount++;
-        }
-        if (next != null)
-        {
-            spacing += Vector3.Distance(current.Center, next.Center);
-            sampleCount++;
-        }
-        if (sampleCount == 0) return SkirtMinimumPanelHalfWidth;
-        return Mathf.Clamp(spacing / sampleCount * 0.48f,
-            SkirtMinimumPanelHalfWidth, SkirtMaximumPanelHalfWidth);
-    }
-
-    private static SkirtSegment GetNeighborSkirtSegment(IList<List<SkirtSegment>> columns,
-        int columnIndex, int rowIndex, bool closeRing)
-    {
-        if (closeRing)
-        {
-            columnIndex %= columns.Count;
-            if (columnIndex < 0) columnIndex += columns.Count;
-        }
-        else if (columnIndex < 0 || columnIndex >= columns.Count)
-        {
-            return null;
-        }
-
-        List<SkirtSegment> segments = columns[columnIndex];
-        return rowIndex >= 0 && rowIndex < segments.Count ? segments[rowIndex] : null;
-    }
-
-    private static Vector3 CalculatePanelRotation(Vector3 segmentDirection, Vector3 tangentDirection)
-    {
-        Vector3 up = segmentDirection.normalized;
-        Vector3 right = Vector3.ProjectOnPlane(tangentDirection, up);
-        if (right.sqrMagnitude < MinimumSegmentLength * MinimumSegmentLength)
-            right = Vector3.ProjectOnPlane(Vector3.right, up);
-        if (right.sqrMagnitude < MinimumSegmentLength * MinimumSegmentLength)
-            right = Vector3.ProjectOnPlane(Vector3.forward, up);
-        right.Normalize();
-        Vector3 forward = Vector3.Cross(right, up).normalized;
-        right = Vector3.Cross(up, forward).normalized;
-        Vector3 euler = Quaternion.LookRotation(forward, up).eulerAngles;
-        return new Vector3(
-            NormalizeDegrees(euler.x), NormalizeDegrees(euler.y), NormalizeDegrees(euler.z));
-    }
-
-    private static MMDRigidBody CreateSkirtAnchorBody(SkirtColumn column,
-        Transform coordinateRoot, int boneIndex)
-    {
-        float radius = Mathf.Max(MinimumRadius, column.Chain.Radii[column.Chain.Root] * 0.5f);
+        // 单节点孤立骨骼：使用球体刚体
+        float sphereRadius = Mathf.Clamp(configuredRadius, MinimumRadius, MaximumRadius);
+        Vector3 sphereRotation = ConvertUnityRotationToWriterEuler(boneRotInCoord);
         return new MMDRigidBody
         {
-            Name = column.Chain.Root.name + "_skirt_anchor",
-            NameEn = column.Chain.Root.name + "_skirt_anchor",
+            Name = bone.name + "_physics",
+            NameEn = bone.name + "_physics",
             AssociatedBoneIndex = boneIndex,
-            CollisionGroup = SkirtCollisionGroup,
-            CollisionMask = (ushort)(1 << SkirtCollisionGroup),
+            CollisionGroup = DynamicCollisionGroup,
+            CollisionMask = CreateCollisionMaskExcludingGroups(
+                DynamicCollisionGroup, SkirtCollisionGroup, SkirtLegCollisionGroup),
             Shape = MMDRigidBody.RigidBodyShape.RigidShapeSphere,
-            Dimemsions = new Vector3(radius, 0, 0),
-            Position = coordinateRoot.InverseTransformPoint(column.Chain.Root.position),
-            Rotation = Vector3.zero,
-            Mass = 0,
-            TranslateDamp = 1,
-            RotateDamp = 1,
-            Restitution = 0,
-            Friction = 0,
-            Type = MMDRigidBody.RigidBodyType.RigidTypeKinematic
-        };
-    }
-
-    private static MMDRigidBody CreateSkirtPanelBody(SkirtSegment segment, int boneIndex,
-        float depthRatio)
-    {
-        return new MMDRigidBody
-        {
-            Name = segment.Bone.name + "_skirt_physics",
-            NameEn = segment.Bone.name + "_skirt_physics",
-            AssociatedBoneIndex = boneIndex,
-            CollisionGroup = SkirtCollisionGroup,
-            CollisionMask = (ushort)(1 << SkirtCollisionGroup),
-            Shape = MMDRigidBody.RigidBodyShape.RigidShapeBox,
-            // PMX 盒体尺寸按半轴构造，段间留出小间隙避免初始姿势互相挤压。
-            Dimemsions = new Vector3(
-                segment.HalfWidth, segment.Length * 0.46f, segment.HalfThickness),
-            Position = segment.Center,
-            Rotation = segment.Rotation,
-            Mass = Mathf.Lerp(SkirtPreset.RootMass, SkirtPreset.TipMass, depthRatio),
-            TranslateDamp = Mathf.Lerp(
-                SkirtPreset.RootTranslateDamp, SkirtPreset.TipTranslateDamp, depthRatio),
-            RotateDamp = Mathf.Lerp(
-                SkirtPreset.RootRotateDamp, SkirtPreset.TipRotateDamp, depthRatio),
+            Dimemsions = new Vector3(sphereRadius, 0, 0),
+            Position = start,
+            Rotation = sphereRotation,
+            Mass = Mathf.Lerp(preset.RootMass, preset.TipMass, depthRatio),
+            TranslateDamp = Mathf.Lerp(preset.RootTranslateDamp, preset.TipTranslateDamp, depthRatio),
+            RotateDamp = Mathf.Lerp(preset.RootRotateDamp, preset.TipRotateDamp, depthRatio),
             Restitution = 0,
             Friction = 0,
             Type = MMDRigidBody.RigidBodyType.RigidTypePhysics
         };
     }
 
-    private static MMDJoint CreateSkirtVerticalJoint(SkirtSegment segment,
-        int parentRigidIndex, float depthRatio)
+    private static MMDRigidBody CreateCapsuleBody(string boneName, int boneIndex, float radius,
+        float cylinderLength, Vector3 position, Vector3 rotationEuler, float depthRatio, PhysicsPreset preset)
     {
-        float bend = SkirtVerticalBendDegrees * Mathf.Deg2Rad;
-        float twist = SkirtVerticalTwistDegrees * Mathf.Deg2Rad;
-        float bendSpring = Mathf.Lerp(26f, 14f, depthRatio);
-        float twistSpring = Mathf.Lerp(10f, 6f, depthRatio);
-        return new MMDJoint
+        return new MMDRigidBody
         {
-            Name = segment.Bone.name + "_skirt_vertical_joint",
-            NameEn = segment.Bone.name + "_skirt_vertical_joint",
-            AssociatedRigidBodyIndex = new[] { parentRigidIndex, segment.RigidIndex },
-            Position = segment.Start,
-            Rotation = segment.Rotation,
-            PositionLowLimit = Vector3.zero,
-            PositionHiLimit = Vector3.zero,
-            RotationLowLimit = new Vector3(-bend, -twist, -bend * 0.75f),
-            RotationHiLimit = new Vector3(bend, twist, bend * 0.75f),
-            SpringTranslate = Vector3.zero,
-            SpringRotate = new Vector3(bendSpring, twistSpring, bendSpring * 0.8f)
-        };
-    }
-
-    private static MMDJoint CreateSkirtHorizontalJoint(SkirtSegment a, SkirtSegment b)
-    {
-        Vector3 tangent = b.Center - a.Center;
-        Vector3 direction = (a.End - a.Start + b.End - b.Start) * 0.5f;
-        float spacing = tangent.magnitude;
-        float averageLength = (a.Length + b.Length) * 0.5f;
-        Vector3 positionAllowance = new Vector3(
-            Mathf.Clamp(spacing * 0.04f, 0.0005f, 0.006f),
-            Mathf.Clamp(averageLength * 0.02f, 0.0005f, 0.004f),
-            Mathf.Clamp((a.HalfThickness + b.HalfThickness) * 0.2f, 0.0005f, 0.003f));
-        float bend = SkirtHorizontalBendDegrees * Mathf.Deg2Rad;
-        float twist = SkirtHorizontalTwistDegrees * Mathf.Deg2Rad;
-        return new MMDJoint
-        {
-            Name = a.Bone.name + "_to_" + b.Bone.name + "_skirt_horizontal_joint",
-            NameEn = a.Bone.name + "_to_" + b.Bone.name + "_skirt_horizontal_joint",
-            AssociatedRigidBodyIndex = new[] { a.RigidIndex, b.RigidIndex },
-            Position = (a.Center + b.Center) * 0.5f,
-            Rotation = CalculatePanelRotation(direction, tangent),
-            PositionLowLimit = -positionAllowance,
-            PositionHiLimit = positionAllowance,
-            RotationLowLimit = new Vector3(-bend, -twist, -bend),
-            RotationHiLimit = new Vector3(bend, twist, bend),
-            SpringTranslate = new Vector3(24f, 18f, 24f),
-            SpringRotate = new Vector3(16f, 8f, 16f)
-        };
-    }
-
-    private static void AddSkirtLegColliders(SkirtController controller,
-        IEnumerable<SkirtColumn> columns, Transform coordinateRoot,
-        Dictionary<Transform, int> boneIndexes, List<MMDRigidBody> rigidBodies)
-    {
-        bool checkLeft = columns.Any(column => column.IsCheckLeftLeg);
-        bool checkRight = columns.Any(column => column.IsCheckRightLeg);
-        float kneeRadius = SanitizeSkirtColliderRadius(controller.KneeColliderRadius, 0.055f);
-        float ankleRadius = SanitizeSkirtColliderRadius(controller.AnkleColliderRadius, 0.045f);
-        if (checkLeft) AddLegColliderChain(
-            "left", controller.KneeLBone, controller.AnkleLBone, kneeRadius, ankleRadius,
-            coordinateRoot, boneIndexes, rigidBodies);
-        if (checkRight) AddLegColliderChain(
-            "right", controller.KneeRBone, controller.AnkleRBone, kneeRadius, ankleRadius,
-            coordinateRoot, boneIndexes, rigidBodies);
-    }
-
-    private static void AddLegColliderChain(string side, Transform knee, Transform ankle,
-        float kneeRadius, float ankleRadius, Transform coordinateRoot,
-        Dictionary<Transform, int> boneIndexes, List<MMDRigidBody> rigidBodies)
-    {
-        if (knee == null || !boneIndexes.ContainsKey(knee)) return;
-        Transform thigh = FindNearestExportedParentTransform(knee.parent, boneIndexes);
-        if (thigh != null)
-            AddKinematicCapsule(side + "_thigh_skirt_collider", thigh, knee, kneeRadius * 1.08f,
-                coordinateRoot, boneIndexes, rigidBodies);
-        if (ankle != null && boneIndexes.ContainsKey(ankle))
-            AddKinematicCapsule(side + "_shin_skirt_collider", knee, ankle,
-                (kneeRadius + ankleRadius) * 0.5f, coordinateRoot, boneIndexes, rigidBodies);
-    }
-
-    private static void AddKinematicCapsule(string name, Transform startBone, Transform endBone,
-        float radius, Transform coordinateRoot, Dictionary<Transform, int> boneIndexes,
-        List<MMDRigidBody> rigidBodies)
-    {
-        if (startBone == null || endBone == null || !boneIndexes.TryGetValue(startBone, out int boneIndex)) return;
-        Vector3 start = coordinateRoot.InverseTransformPoint(startBone.position);
-        Vector3 end = coordinateRoot.InverseTransformPoint(endBone.position);
-        float length = Vector3.Distance(start, end);
-        if (length <= MinimumSegmentLength) return;
-        rigidBodies.Add(new MMDRigidBody
-        {
-            Name = name,
-            NameEn = name,
+            Name = boneName + "_physics",
+            NameEn = boneName + "_physics",
             AssociatedBoneIndex = boneIndex,
-            CollisionGroup = BodyCollisionGroup,
-            CollisionMask = (ushort)(1 << BodyCollisionGroup),
+            CollisionGroup = DynamicCollisionGroup,
+            CollisionMask = CreateCollisionMaskExcludingGroups(
+                DynamicCollisionGroup, SkirtCollisionGroup, SkirtLegCollisionGroup),
             Shape = MMDRigidBody.RigidBodyShape.RigidShapeCapsule,
-            Dimemsions = new Vector3(radius, length, 0),
-            Position = (start + end) * 0.5f,
-            Rotation = CalculateCapsuleRotation(end - start),
-            Mass = 0,
-            TranslateDamp = 1,
-            RotateDamp = 1,
+            Dimemsions = new Vector3(radius, cylinderLength, 0),
+            Position = position,
+            Rotation = rotationEuler,
+            Mass = Mathf.Lerp(preset.RootMass, preset.TipMass, depthRatio),
+            TranslateDamp = Mathf.Lerp(preset.RootTranslateDamp, preset.TipTranslateDamp, depthRatio),
+            RotateDamp = Mathf.Lerp(preset.RootRotateDamp, preset.TipRotateDamp, depthRatio),
             Restitution = 0,
             Friction = 0,
-            Type = MMDRigidBody.RigidBodyType.RigidTypeKinematic
-        });
+            Type = MMDRigidBody.RigidBodyType.RigidTypePhysics
+        };
     }
 
-    private static float SanitizeSkirtColliderRadius(float radius, float fallback)
-    {
-        return IsFinite(radius) && radius > 0f ? Mathf.Clamp(radius, 0.02f, 0.09f) : fallback;
-    }
-
-    private static MMDRigidBody CreateAnchorBody(Chain chain, Transform coordinateRoot, int boneIndex)
+    private static MMDRigidBody CreateAnchorBody(Chain chain, Transform coordinateRoot, int boneIndex, Vector3 rotation)
     {
         float radius = Mathf.Max(MinimumRadius, chain.Radii[chain.Root] * 0.75f);
         return new MMDRigidBody
@@ -791,54 +427,18 @@ internal static class PMXPhysicsExporter
             NameEn = chain.Root.name + "_anchor",
             AssociatedBoneIndex = boneIndex,
             CollisionGroup = DynamicCollisionGroup,
-            CollisionMask = (ushort)(1 << DynamicCollisionGroup),
+            CollisionMask = CreateCollisionMaskExcludingGroups(
+                DynamicCollisionGroup, SkirtCollisionGroup, SkirtLegCollisionGroup),
             Shape = MMDRigidBody.RigidBodyShape.RigidShapeSphere,
             Dimemsions = new Vector3(radius, 0, 0),
             Position = coordinateRoot.InverseTransformPoint(chain.Root.position),
-            Rotation = Vector3.zero,
+            Rotation = rotation,
             Mass = 0,
             TranslateDamp = 1,
             RotateDamp = 1,
             Restitution = 0,
             Friction = 0,
             Type = MMDRigidBody.RigidBodyType.RigidTypeKinematic
-        };
-    }
-
-    private static MMDRigidBody CreateDynamicBody(Transform bone, Transform child, float configuredRadius,
-        float depthRatio, Transform coordinateRoot, int boneIndex, PhysicsPreset preset)
-    {
-        Vector3 start = coordinateRoot.InverseTransformPoint(bone.position);
-        Vector3 end = child != null ? coordinateRoot.InverseTransformPoint(child.position) : start;
-        float length = Vector3.Distance(start, end);
-        float radius = Mathf.Clamp(configuredRadius, MinimumRadius, MaximumRadius);
-        if (length > MinimumSegmentLength)
-            radius = Mathf.Min(radius, Mathf.Max(MinimumRadius, length * 0.28f));
-
-        bool useCapsule = length >= Mathf.Max(MinimumSegmentLength, radius * CapsuleThreshold);
-        Vector3 position = useCapsule ? (start + end) * 0.5f : start;
-        Vector3 rotation = useCapsule ? CalculateCapsuleRotation(end - start) : Vector3.zero;
-
-        return new MMDRigidBody
-        {
-            Name = bone.name + "_physics",
-            NameEn = bone.name + "_physics",
-            AssociatedBoneIndex = boneIndex,
-            CollisionGroup = DynamicCollisionGroup,
-            CollisionMask = (ushort)(1 << DynamicCollisionGroup),
-            Shape = useCapsule
-                ? MMDRigidBody.RigidBodyShape.RigidShapeCapsule
-                : MMDRigidBody.RigidBodyShape.RigidShapeSphere,
-            // PMX 胶囊尺寸使用 X=半径、Y=轴向长度；球体只读取 X。
-            Dimemsions = useCapsule ? new Vector3(radius, length, 0) : new Vector3(radius, 0, 0),
-            Position = position,
-            Rotation = rotation,
-            Mass = Mathf.Lerp(preset.RootMass, preset.TipMass, depthRatio),
-            TranslateDamp = Mathf.Lerp(preset.RootTranslateDamp, preset.TipTranslateDamp, depthRatio),
-            RotateDamp = Mathf.Lerp(preset.RootRotateDamp, preset.TipRotateDamp, depthRatio),
-            Restitution = 0,
-            Friction = 0,
-            Type = MMDRigidBody.RigidBodyType.RigidTypePhysics
         };
     }
 
@@ -853,7 +453,6 @@ internal static class PMXPhysicsExporter
         float tailRadius = chain.Radii[chain.Root];
         if (rootDistance <= MinimumSegmentLength) return null;
 
-        // 球面停在尾根内侧并保留约一个半尾巴半径的间隙，避免初始帧互相穿插。
         float radius = Mathf.Clamp(
             rootDistance - tailRadius * TailColliderClearanceMultiplier,
             tailRadius * TailColliderMinimumRadiusMultiplier,
@@ -864,8 +463,8 @@ internal static class PMXPhysicsExporter
             Name = chain.Root.name + "_body_blocker",
             NameEn = chain.Root.name + "_body_blocker",
             AssociatedBoneIndex = anchorBoneIndex,
-            CollisionGroup = BodyCollisionGroup,
-            CollisionMask = (ushort)(1 << BodyCollisionGroup),
+            CollisionGroup = TailBodyCollisionGroup,
+            CollisionMask = CreateCollisionMaskOnlyCollideWith(DynamicCollisionGroup),
             Shape = MMDRigidBody.RigidBodyShape.RigidShapeSphere,
             Dimemsions = new Vector3(radius, 0, 0),
             Position = anchorPosition,
@@ -880,18 +479,13 @@ internal static class PMXPhysicsExporter
     }
 
     private static MMDJoint CreateJoint(Transform bone, Transform coordinateRoot,
-        int parentRigidIndex, int rigidIndex, float bendLimitDegrees,
-        float twistLimitDegrees, float bendSpring, float twistSpring, bool offsetTailRoot)
+        int parentRigidIndex, int rigidIndex, Vector3 jointRotation, float bendLimitDegrees,
+        float twistLimitDegrees, float bendSpring, float twistSpring)
     {
         float bend = bendLimitDegrees * Mathf.Deg2Rad;
         float twist = twistLimitDegrees * Mathf.Deg2Rad;
         Vector3 rotationLowLimit = new Vector3(-bend, -twist, -bend);
         Vector3 rotationHiLimit = new Vector3(bend, twist, bend);
-        if (offsetTailRoot)
-        {
-            // PMX 角限制按文件原始轴写入；仅让尾根相对模型 X 轴静态偏转 +15 度。
-            rotationLowLimit.x = TailRootXRestOffsetDegrees * Mathf.Deg2Rad;
-        }
 
         return new MMDJoint
         {
@@ -899,15 +493,41 @@ internal static class PMXPhysicsExporter
             NameEn = bone.name + "_joint",
             AssociatedRigidBodyIndex = new[] { parentRigidIndex, rigidIndex },
             Position = coordinateRoot.InverseTransformPoint(bone.position),
-            Rotation = Vector3.zero,
+            Rotation = jointRotation,
             PositionLowLimit = Vector3.zero,
             PositionHiLimit = Vector3.zero,
             RotationLowLimit = rotationLowLimit,
             RotationHiLimit = rotationHiLimit,
             SpringTranslate = Vector3.zero,
-            // PMX 旋转弹簧以初始刚体关系为零点，根部较强、末端逐节减弱。
             SpringRotate = new Vector3(bendSpring, twistSpring, bendSpring)
         };
+    }
+
+    internal static float GetCapsuleCylinderLength(float endpointDistance, float radius)
+    {
+        return Mathf.Max(MinimumSegmentLength, endpointDistance - radius * 2f);
+    }
+
+    internal static ushort CreateCollisionMaskExcludingGroups(params int[] groups)
+    {
+        ushort mask = 0;
+        foreach (int group in groups) mask |= (ushort)(1 << group);
+        return mask;
+    }
+
+    /// <summary>
+    /// 白名单碰撞掩码：在 PMX/MMD 中，掩码中 bit 为 1 代表非碰撞（屏蔽），bit 为 0 代表发生碰撞。
+    /// 该方法将所有组默认设为屏蔽（1），仅允许指定的 targetGroups 发生碰撞（置 0）。
+    /// </summary>
+    internal static ushort CreateCollisionMaskOnlyCollideWith(params int[] targetGroups)
+    {
+        ushort mask = 0xFFFF; // 默认屏蔽全部 16 个组
+        foreach (int group in targetGroups)
+        {
+            if (group >= 0 && group < 16)
+                mask &= (ushort)~(1 << group);
+        }
+        return mask;
     }
 
     private static bool IsEarBoneName(string boneName)
@@ -924,11 +544,41 @@ internal static class PMXPhysicsExporter
         return name.Contains("tail") || name.Contains("shippo") || name.Contains("尻尾") || name.Contains("尾");
     }
 
-    private static Vector3 CalculateCapsuleRotation(Vector3 direction)
+    internal static Vector3 ConvertUnityRotationToWriterEuler(Quaternion unityRotation)
     {
-        if (direction.sqrMagnitude < MinimumSegmentLength * MinimumSegmentLength) return Vector3.zero;
-        Vector3 euler = Quaternion.FromToRotation(Vector3.up, direction.normalized).eulerAngles;
-        return new Vector3(NormalizeDegrees(euler.x), NormalizeDegrees(euler.y), NormalizeDegrees(euler.z));
+        // 坐标基 S=diag(-1, 1, -1)，完整旋转按 R_pmx=S*R_unity*S^-1 转换
+        Quaternion pmxRotation = new Quaternion(
+            -unityRotation.x, unityRotation.y, -unityRotation.z, unityRotation.w);
+        Vector3 pmxEuler = ExtractPmxEulerDegrees(pmxRotation);
+
+        // Writer 落盘时执行 (x,y,z)->(-x,y,-z)，此处返回内存坐标约定
+        return new Vector3(
+            NormalizeDegrees(-pmxEuler.x),
+            NormalizeDegrees(pmxEuler.y),
+            NormalizeDegrees(-pmxEuler.z));
+    }
+
+    private static Vector3 ExtractPmxEulerDegrees(Quaternion rotation)
+    {
+        Matrix4x4 matrix = Matrix4x4.Rotate(rotation);
+        // PMX 与 mmd_tools 使用 YXZ 欧拉旋转顺序（R = Ry * Rx * Rz）
+        float x = Mathf.Asin(Mathf.Clamp(-matrix.m12, -1f, 1f));
+        float cosX = Mathf.Cos(x);
+        float y;
+        float z;
+
+        if (Mathf.Abs(cosX) > 0.00001f)
+        {
+            y = Mathf.Atan2(matrix.m02, matrix.m22);
+            z = Mathf.Atan2(matrix.m10, matrix.m11);
+        }
+        else
+        {
+            y = Mathf.Atan2(matrix.m01, matrix.m00);
+            z = 0f;
+        }
+
+        return new Vector3(x, y, z) * Mathf.Rad2Deg;
     }
 
     private static float NormalizeDegrees(float value)
@@ -936,15 +586,25 @@ internal static class PMXPhysicsExporter
         return value > 180f ? value - 360f : value;
     }
 
+    internal static List<Transform> GetChainChildren(Transform bone, HashSet<Transform> chainBones)
+    {
+        List<Transform> result = new List<Transform>();
+        for (int i = 0; i < bone.childCount; i++)
+        {
+            Transform child = bone.GetChild(i);
+            if (chainBones.Contains(child)) result.Add(child);
+        }
+        return result;
+    }
 
-    private static Transform GetSingleChainChild(Transform bone, HashSet<Transform> chainBones)
+    internal static Transform GetSingleChainChild(Transform bone, HashSet<Transform> chainBones)
     {
         Transform result = null;
         for (int i = 0; i < bone.childCount; i++)
         {
             Transform child = bone.GetChild(i);
             if (!chainBones.Contains(child)) continue;
-            if (result != null) return null; // 分叉节点使用球体，避免胶囊偏向任意一个分支。
+            if (result != null) return null;
             result = child;
         }
         return result;
@@ -962,7 +622,7 @@ internal static class PMXPhysicsExporter
         return fallback;
     }
 
-    private static Transform FindNearestExportedParentTransform(Transform parent,
+    internal static Transform FindNearestExportedParentTransform(Transform parent,
         Dictionary<Transform, int> boneIndexes)
     {
         for (Transform current = parent; current != null; current = current.parent)
@@ -977,7 +637,7 @@ internal static class PMXPhysicsExporter
         return depth;
     }
 
-    private static float SanitizeRadius(float radius)
+    internal static float SanitizeRadius(float radius)
     {
         return IsFinite(radius) && radius > 0 ? Mathf.Clamp(radius, MinimumRadius, MaximumRadius) : DefaultRadius;
     }
@@ -993,13 +653,18 @@ internal static class PMXPhysicsExporter
                 if (child != null) boneText += " " + (child._boneName ?? string.Empty).ToLowerInvariant();
         }
 
-        if (ContainsAny(boneText, "skirt", "cloth", "dress", "bust", "breast", "mune")) return false;
-        if (ContainsAny(boneText, "head", "hair", "ear", "tail")) return true;
+        // 排除裙摆与胸部/披风/袖子
+        if (ContainsAny(boneText, "skirt", "cloth", "dress", "bust", "breast", "mune", "sleeve", "cape", "mskirt"))
+            return false;
 
-        // 骨名不含部位信息时才使用容器路径兜底，避免混合容器中的裙摆污染头发判断。
+        // 匹配头发、耳朵、马尾、呆毛及尾巴
+        if (ContainsAny(boneText, "sp_he_", "sp_hi_tail", "hair", "ear", "tail", "head", "mimi", "shippo", "ponytail", "twin", "ahoge", "bang", "side", "back", "front"))
+            return true;
+
         string path = GetTransformPath(container.transform).ToLowerInvariant();
-        if (ContainsAny(path, "skirt", "cloth", "dress", "bust", "breast", "mune")) return false;
-        return ContainsAny(path, "head", "hair", "ear", "tail");
+        if (ContainsAny(path, "skirt", "cloth", "dress", "bust", "breast", "mune", "sleeve", "cape", "mskirt"))
+            return false;
+        return ContainsAny(path, "sp_he_", "head", "hair", "ear", "tail", "mimi", "shippo");
     }
 
     private static string GetTransformPath(Transform transform)
@@ -1015,16 +680,6 @@ internal static class PMXPhysicsExporter
         return values.Any(value => text.IndexOf(value, StringComparison.OrdinalIgnoreCase) >= 0);
     }
 
-    private static void MarkPostPhysicsBones(IEnumerable<Transform> transforms, PMXBoneExporter.Result boneResult)
-    {
-        foreach (Transform transform in transforms)
-        {
-            if (!boneResult.BoneIndexes.TryGetValue(transform, out int index)) continue;
-            boneResult.Bones[index].PostPhysics = true;
-            boneResult.Bones[index].TransformLevel = System.Math.Max(1, boneResult.Bones[index].TransformLevel);
-        }
-    }
-
     private static void Validate(List<MMDRigidBody> rigidBodies, List<MMDJoint> joints, int boneCount)
     {
         for (int i = 0; i < rigidBodies.Count; i++)
@@ -1035,8 +690,9 @@ internal static class PMXPhysicsExporter
             if (body.CollisionGroup < 0 || body.CollisionGroup > 15)
                 throw new InvalidOperationException("PMX 刚体碰撞组无效: " + body.Name);
             if (body.Type != MMDRigidBody.RigidBodyType.RigidTypeKinematic &&
-                body.Type != MMDRigidBody.RigidBodyType.RigidTypePhysics)
-                throw new InvalidOperationException("PMX 导出不允许 Type 2/3 刚体: " + body.Name);
+                body.Type != MMDRigidBody.RigidBodyType.RigidTypePhysics &&
+                body.Type != MMDRigidBody.RigidBodyType.RigidTypePhysicsStrict)
+                throw new InvalidOperationException("PMX 导出不允许 Type 3 刚体: " + body.Name);
             if (!IsFinite(body.Position) || !IsFinite(body.Rotation) || !IsFinite(body.Dimemsions))
                 throw new InvalidOperationException("PMX 刚体包含 NaN 或 Infinity: " + body.Name);
             if (body.Dimemsions.x <= 0f ||
@@ -1070,7 +726,7 @@ internal static class PMXPhysicsExporter
         }
     }
 
-    private static bool IsFinite(float value)
+    internal static bool IsFinite(float value)
     {
         return !float.IsNaN(value) && !float.IsInfinity(value);
     }

@@ -66,13 +66,16 @@ namespace LibMMD.Reader
                     joint.AssociatedRigidBodyIndex[1] =
                         MMDReaderWriteUtil.ReadIndex(reader, pmxConfig.RigidBodyIndexSize);
                     joint.Position = MMDReaderWriteUtil.ReadVector3(reader);
-                    joint.Rotation = MMDReaderWriteUtil.ReadAmpVector3(reader, Mathf.Rad2Deg);
-                    joint.PositionLowLimit = MMDReaderWriteUtil.ReadVector3(reader);
-                    joint.PositionHiLimit = MMDReaderWriteUtil.ReadVector3(reader);
+                    joint.Rotation = MMDReaderWriteUtil.ReadEulerRotation(reader);
+                    MMDReaderWriteUtil.ReadPositionLimitPair(
+                        reader, out Vector3 positionLowLimit, out Vector3 positionHiLimit);
+                    joint.PositionLowLimit = positionLowLimit;
+                    joint.PositionHiLimit = positionHiLimit;
                     // PMX Joint 角限制和旋转弹簧按文件中的弧度分量原样读取。
                     joint.RotationLowLimit = MMDReaderWriteUtil.ReadRawVector3(reader);
                     joint.RotationHiLimit = MMDReaderWriteUtil.ReadRawVector3(reader);
-                    joint.SpringTranslate = MMDReaderWriteUtil.ReadVector3(reader);
+                    // 平移弹簧按 PMX 文件中的各轴刚度原样读取。
+                    joint.SpringTranslate = MMDReaderWriteUtil.ReadRawVector3(reader);
                     joint.SpringRotate = MMDReaderWriteUtil.ReadRawVector3(reader);
                 }
                 else
@@ -117,7 +120,7 @@ namespace LibMMD.Reader
                     Shape = (MMDRigidBody.RigidBodyShape) reader.ReadByte(),
                     Dimemsions = MMDReaderWriteUtil.ReadRawCoordinateVector3(reader),
                     Position = MMDReaderWriteUtil.ReadVector3(reader),
-                    Rotation = MMDReaderWriteUtil.ReadAmpVector3(reader, Mathf.Rad2Deg),
+                    Rotation = MMDReaderWriteUtil.ReadEulerRotation(reader),
                     Mass = reader.ReadSingle(),
                     TranslateDamp = reader.ReadSingle(),
                     RotateDamp = reader.ReadSingle(),

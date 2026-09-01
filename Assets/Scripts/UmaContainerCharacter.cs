@@ -443,7 +443,13 @@ public class UmaContainerCharacter : UmaContainer
 
         if (PhysicsContainer == null)
         {
-            Debug.LogWarning("[UmaContainerCharacter] PhysicsContainer is null.");
+            const string message = "[UmaContainerCharacter] PhysicsContainer is null.";
+            Debug.LogError(message);
+            // 物理容器缺失时仍允许角色继续显示，但必须让用户知道 CySpring 已回退。
+            UmaViewerUI.Instance?.ShowMessage(
+                "CySpring physics container not found. Physics fallback is being used.",
+                UIMessageType.Error
+            );
             return;
         }
 
@@ -453,7 +459,13 @@ public class UmaContainerCharacter : UmaContainer
 
         if (cySpringDataContainers == null || cySpringDataContainers.Count == 0)
         {
-            Debug.LogWarning("[UmaContainerCharacter] No CySpringDataContainer found.");
+            const string message = "[UmaContainerCharacter] No CySpringDataContainer found.";
+            Debug.LogError(message);
+            // 数据组件消失属于可回退错误，不能只写入 Unity Console。
+            UmaViewerUI.Instance?.ShowMessage(
+                "CySpring data not found. Physics fallback is being used.",
+                UIMessageType.Error
+            );
             return;
         }
 
@@ -490,7 +502,12 @@ public class UmaContainerCharacter : UmaContainer
 
         if (_cySpringController == null)
         {
-            Debug.LogError("[UmaContainerCharacter] Failed to create CySpringController.");
+            const string message = "[UmaContainerCharacter] Failed to create CySpringController.";
+            Debug.LogError(message);
+            UmaViewerUI.Instance?.ShowMessage(
+                "CySpring controller could not be created. Physics fallback is being used.",
+                UIMessageType.Error
+            );
             _cySpringLoaded = false;
             return;
         }
