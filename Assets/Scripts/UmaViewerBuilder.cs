@@ -303,8 +303,13 @@ public string[] NormalBodyKeywords  = new[] { "skin", "body", "bdy", "face", "he
             }
             else
             {
-                Debug.LogWarning(
-                    $"[UmaViewerBuilder] Head physics not found: {headClothPath}"
+                string message =
+                    $"[UmaViewerBuilder] Head CySpring physics not found: {headClothPath}";
+                Debug.LogError(message);
+                // CySpring 缺失会继续加载角色，但必须通过用户界面的错误级别提示用户。
+                UmaViewerUI.Instance?.ShowMessage(
+                    $"Head CySpring physics not found:\n{headClothPath}",
+                    UIMessageType.Error
                 );
             }
         }
@@ -579,19 +584,31 @@ public string[] NormalBodyKeywords  = new[] { "skin", "body", "bdy", "face", "he
                         fallbackHeadClothPath,
                         out UmaDatabaseEntry fallbackHeadClothAsset))
                 {
-                    Debug.Log(
-                        $"[UmaViewerBuilder] Hair physics not found, " +
-                        $"use fallback head physics: {fallbackHeadClothPath}"
+                    // 缺失专用 CySpring 时先报错，仍使用普通头部物理维持可预览状态。
+                    string message =
+                        $"[UmaViewerBuilder] Mob hair CySpring is missing. " +
+                        $"Fallback to head physics: {fallbackHeadClothPath}\n" +
+                        $"missing={hairClothPath}";
+                    Debug.LogError(message);
+                    UmaViewerUI.Instance?.ShowMessage(
+                        $"Mob hair CySpring physics not found. Using fallback physics.\n" +
+                        $"missing={hairClothPath}\nfallback={fallbackHeadClothPath}",
+                        UIMessageType.Error
                     );
 
                     umaContainer.LoadPhysics(fallbackHeadClothAsset);
                 }
                 else
                 {
-                    Debug.LogWarning(
-                        "[UmaViewerBuilder] Mob head physics not found.\n" +
+                    string message =
+                        "[UmaViewerBuilder] Mob head CySpring physics not found.\n" +
                         $"hair={hairClothPath}\n" +
-                        $"fallback={fallbackHeadClothPath}"
+                        $"fallback={fallbackHeadClothPath}";
+                    Debug.LogError(message);
+                    UmaViewerUI.Instance?.ShowMessage(
+                        "Mob head CySpring physics not found.\n" +
+                        $"hair={hairClothPath}\nfallback={fallbackHeadClothPath}",
+                        UIMessageType.Error
                     );
                 }
             }
@@ -806,7 +823,11 @@ public string[] NormalBodyKeywords  = new[] { "skin", "body", "bdy", "face", "he
         UmaAssetManager.UnloadAllBundle();
 
         var prop = new GameObject(Path.GetFileName(entry.Name)).AddComponent<UmaContainerProp>();
-        prop.LoadProp(entry);
+        if (!prop.LoadProp(entry))
+        {
+            Destroy(prop.gameObject);
+            return;
+        }
 
         CurrentOtherContainer = prop;
     }
