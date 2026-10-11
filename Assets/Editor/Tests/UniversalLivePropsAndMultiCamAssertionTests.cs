@@ -15,6 +15,7 @@ using Gallop.Live.Cutt;
 /// 3. 1175 天空盒 27 帧时序直达驱动与 10147 云层反相自适应激活断言
 /// 4. 1092、1152、1181、1154 典型道具与立式麦克风挂载骨骼查找断言
 /// 5. MultiCameraComposite 视口计算与空指针防御断言
+/// 6. MultiCamera 数据组结构契约、GetKeyList 重写与真实 Cutt 反序列化断言
 /// </summary>
 public static class UniversalLivePropsAndMultiCamAssertionTests
 {
@@ -41,6 +42,7 @@ public static class UniversalLivePropsAndMultiCamAssertionTests
         RunTestCase("测试 7: 多机位 MaskRoll 映射、分屏开关 IsScreenDivide 与背景色属性断言", ref total, ref passed, ref failed, sb, TestMultiCameraMaskRollDivideAndBgColorAssertion);
         RunTestCase("测试 8: 多机位数容错推断、独立合成器数组与 MultiCameraFinalComposite 断言", ref total, ref passed, ref failed, sb, TestMultiCameraInferenceAndFinalCompositeAssertion);
         RunTestCase("测试 9: URP 多机位全屏分屏 Overlay 呈现层、防黑空纹理保护与 MonitorCamera 实时画面断言", ref total, ref passed, ref failed, sb, TestUrpMultiCameraOverlayAndMonitorCameraAssertion);
+        RunTestCase("测试 10: 多机位时间轴参考结构对齐与真实 Cutt 反序列化断言", ref total, ref passed, ref failed, sb, TestRealCuttAssetDeserializationAssertion);
 
         sb.AppendLine("================================================================================");
         sb.AppendLine($"  测试汇总: 总计 {total} 项 | 通过: {passed} 项 | 失败: {failed} 项 | 通过率: {(total > 0 ? (float)passed / total * 100f : 0f):F1}%");
@@ -832,6 +834,101 @@ public static class UniversalLivePropsAndMultiCamAssertionTests
         {
             UnityEngine.Object.DestroyImmediate(dirGo);
             UnityEngine.Object.DestroyImmediate(controlGo);
+        }
+    }
+    #endregion
+
+    #region 测试 10: 多机位时间轴参考结构对齐与真实 Cutt 反序列化断言
+    /// <summary>
+    /// 测试 10：验证 MultiCamera 数据组结构参考实现（默认列表、GetKeyList 重写、基类名称构造），
+    /// 并从本地缓存中加载真实 1157 Cutt 资产，深度断言反序列化字段 MultiCameraNo 与 MaskCentralAngle 的有效性。
+    /// </summary>
+    private static void TestRealCuttAssetDeserializationAssertion()
+    {
+        // 1. 验证参考结构形态契约（默认实例化、接口重写与名称构造）
+        var posGroup = new LiveTimelineMultiCameraPositionData();
+        AssertNotNull(posGroup.keys, "LiveTimelineMultiCameraPositionData 默认必须实例化 keys 容器");
+        AssertTrue(posGroup.name == "MultiCameraPos", $"LiveTimelineMultiCameraPositionData 构造函数必须注册名称 MultiCameraPos，实际为: '{posGroup.name}'");
+        AssertNotNull(posGroup.GetKeyList(), "LiveTimelineMultiCameraPositionData GetKeyList() 必须返回有效列表");
+        AssertTrue(posGroup.GetKeyList() == posGroup.keys, "GetKeyList() 必须严格指向内部 keys 成员");
+
+        var lookAtGroup = new LiveTimelineMultiCameraLookAtData();
+        AssertNotNull(lookAtGroup.keys, "LiveTimelineMultiCameraLookAtData 默认必须实例化 keys 容器");
+        AssertTrue(lookAtGroup.name == "MultiCameraLookAt", $"LiveTimelineMultiCameraLookAtData 构造函数必须注册名称 MultiCameraLookAt，实际为: '{lookAtGroup.name}'");
+        AssertNotNull(lookAtGroup.GetKeyList(), "LiveTimelineMultiCameraLookAtData GetKeyList() 必须返回有效列表");
+        AssertTrue(lookAtGroup.GetKeyList() == lookAtGroup.keys, "GetKeyList() 必须严格指向内部 keys 成员");
+
+        // 2. 尝试从本地持久化缓存中加载 1157 真实 Cutt 资产并执行反序列化断言
+        if (Config.Instance == null) new Config();
+        Config.Instance.MainPath = @"C:\Users\JuziD\Umamusume\umamusume_Data\Persistent";
+
+        var db = UmaDatabaseController.Instance;
+        if (db != null && db.MetaEntries != null && db.MetaEntries.TryGetValue("cutt/cutt_son1157/cutt_son1157", out var cuttEntry))
+        {
+            if (UmaAssetManager.Exist(cuttEntry))
+            {
+                AssetBundle bundle = UmaAssetManager.LoadAssetBundle(cuttEntry);
+                AssertNotNull(bundle, "1157 Cutt AssetBundle 读取加载不得为空");
+
+                GameObject cuttPrefab = bundle.LoadAsset<GameObject>("cutt_son1157");
+                AssertNotNull(cuttPrefab, "1157 Cutt 预制体资源载入不得为空");
+
+                var timelineControl = cuttPrefab.GetComponent<LiveTimelineControl>();
+                AssertNotNull(timelineControl, "1157 Cutt 预制体必须挂载 LiveTimelineControl 组件");
+                AssertNotNull(timelineControl.data, "1157 LiveTimelineControl.data 必须成功反序列化");
+                AssertNotNull(timelineControl.data.worksheetList, "1157 worksheetList 必须反序列化成功");
+                AssertTrue(timelineControl.data.worksheetList.Count > 0, "1157 worksheetList 至少应包含 1 个工作表");
+
+                var sheet0 = timelineControl.data.worksheetList[0];
+                AssertNotNull(sheet0.multiCameraPosKeys, "1157 worksheet[0].multiCameraPosKeys 必须反序列化成功");
+                AssertTrue(sheet0.multiCameraPosKeys.Count > 0, "1157 multiCameraPosKeys 轨道数量应大于 0");
+
+                bool foundValidMultiCameraNo = false;
+                bool foundFanMaskAngle = false;
+
+                for (int i = 0; i < sheet0.multiCameraPosKeys.Count; i++)
+                {
+                    var group = sheet0.multiCameraPosKeys[i];
+                    AssertNotNull(group, "多机位位置组数据不能为空");
+                    AssertNotNull(group.GetKeyList(), "真实资产反序列化后 GetKeyList() 必须有效且非空");
+
+                    // 真实反序列化后的 MultiCameraNo 应为合法索引（0、1 等）
+                    if (group.MultiCameraNo >= 0)
+                    {
+                        foundValidMultiCameraNo = true;
+                    }
+
+                    if (group.keys != null && group.keys.thisList != null)
+                    {
+                        for (int j = 0; j < group.keys.thisList.Count; j++)
+                        {
+                            var k = group.keys.thisList[j];
+                            if (k != null && k.maskType == LiveTimelineKeyMultiCameraPositionData.MaskType.Fan && k.MaskCentralAngle > 0.001f)
+                            {
+                                foundFanMaskAngle = true;
+                            }
+                        }
+                    }
+                }
+
+                AssertTrue(foundValidMultiCameraNo, "真实 1157 Cutt 资产反序列化中必须解析出有效的 MultiCameraNo");
+                AssertTrue(foundFanMaskAngle, "真实 1157 Cutt 资产中必须反序列化出有效的 MaskCentralAngle 扇形遮罩角度");
+
+                // 同时断言 LookAt 轨道反序列化
+                if (sheet0.multiCameraLookAtKeys != null && sheet0.multiCameraLookAtKeys.Count > 0)
+                {
+                    for (int i = 0; i < sheet0.multiCameraLookAtKeys.Count; i++)
+                    {
+                        var lookAt = sheet0.multiCameraLookAtKeys[i];
+                        AssertNotNull(lookAt, "多机位注视点组数据不能为空");
+                        AssertNotNull(lookAt.GetKeyList(), "真实资产反序列化后 LookAt.GetKeyList() 必须有效");
+                    }
+                }
+            }
+            else
+            {
+                Debug.LogWarning("[测试 10] 本地未缓存 1157 Cutt bundle，跳过资产级断言，已完成参考结构与契约断言。");
+            }
         }
     }
     #endregion

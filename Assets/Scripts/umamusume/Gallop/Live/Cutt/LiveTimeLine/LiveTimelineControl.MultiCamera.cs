@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using UnityEngine;
 
 namespace Gallop.Live.Cutt
@@ -48,6 +48,13 @@ namespace Gallop.Live.Cutt
         /// </summary>
         public static bool UseFadeTimeSwitcher = true;
 
+        // 多机位同步覆盖主相机的运行时状态缓存
+        private int _updateMultiCameraIndexToMainCamera = -1;
+        private Vector3 _multiCameraPosition;
+        private Quaternion _multiCameraRotation;
+        private float _multiCameraFieldOfView;
+        private readonly float[] _multiCameraRollArray = new float[16];
+
         private static Vector3 GetMultiCameraPositionValue(
             LiveTimelineKeyCameraPositionData keyData,
             LiveTimelineControl timelineControl,
@@ -90,7 +97,8 @@ namespace Gallop.Live.Cutt
                 return false;
             }
 
-            if (_multiCameraCache == null || timelineIndex >= _multiCameraCache.Length)
+            int multiCameraIndex = sheet.multiCameraPosKeys[timelineIndex].MultiCameraNo;
+            if (_multiCameraCache == null || multiCameraIndex < 0 || multiCameraIndex >= _multiCameraCache.Length)
             {
                 pos = Vector3.zero;
                 return false;
@@ -102,13 +110,13 @@ namespace Gallop.Live.Cutt
             config.keyType = FindTimelineConfig.KeyType.KeyDirect;
             config.posKeys = sheet.multiCameraPosKeys[timelineIndex].keys;
             config.lookAtKeys = null;
-            config.extraCameraIndex = timelineIndex;
+            config.extraCameraIndex = multiCameraIndex;
 
             return CalculateCameraPos(
                 out pos,
                 sheet,
                 currentFrame,
-                _multiCameraCache[timelineIndex],
+                _multiCameraCache[multiCameraIndex],
                 ref config,
                 ref fnGetMultiCameraPositionValueFunc
             );
@@ -130,7 +138,8 @@ namespace Gallop.Live.Cutt
                 return false;
             }
 
-            if (_multiCameraCache == null || timelineIndex >= _multiCameraCache.Length)
+            int multiCameraIndex = sheet.multiCameraPosKeys[timelineIndex].MultiCameraNo;
+            if (_multiCameraCache == null || multiCameraIndex < 0 || multiCameraIndex >= _multiCameraCache.Length)
             {
                 pos = Vector3.zero;
                 return false;
@@ -142,13 +151,13 @@ namespace Gallop.Live.Cutt
             config.keyType = FindTimelineConfig.KeyType.KeyDirect;
             config.posKeys = sheet.multiCameraPosKeys[timelineIndex].keys;
             config.lookAtKeys = sheet.multiCameraLookAtKeys[timelineIndex].keys;
-            config.extraCameraIndex = timelineIndex;
+            config.extraCameraIndex = multiCameraIndex;
 
             return CalculateCameraLookAt(
                 out pos,
                 sheet,
                 currentFrame,
-                _multiCameraCache[timelineIndex],
+                _multiCameraCache[multiCameraIndex],
                 ref config,
                 ref fnGetMultiCameraLookAtValueFunc,
                 ref fnGetMultiCameraPositionValueFunc
@@ -329,12 +338,20 @@ namespace Gallop.Live.Cutt
             for (int i = 0; i < count; i++)
             {
                 int timelineIndex = i;
-                if (timelineIndex >= _multiCameraCache.Length)
+                LiveTimelineMultiCameraPositionData timelineData = sheet.multiCameraPosKeys[timelineIndex];
+                if (timelineData == null)
                 {
-                    break;
+                    continue;
                 }
 
-                LiveTimelineKeyMultiCameraPositionDataList keys = sheet.multiCameraPosKeys[timelineIndex].keys;
+                // 核心修复：必须从 timelineData 读取 MultiCameraNo，严禁误用循环序号 timelineIndex 作为机位号
+                int multiCameraIndex = timelineData.MultiCameraNo;
+                if (multiCameraIndex < 0 || multiCameraIndex >= _multiCameraCache.Length)
+                {
+                    continue;
+                }
+
+                LiveTimelineKeyMultiCameraPositionDataList keys = timelineData.keys;
                 if (keys == null || keys.Count == 0)
                 {
                     continue;
@@ -345,7 +362,7 @@ namespace Gallop.Live.Cutt
                     continue;
                 }
 
-                MultiCameraComposite multiCameraComposition = director != null ? director.GetMultiCameraComposite(timelineIndex) : null;
+                MultiCameraComposite multiCameraComposition = director != null ? director.GetMultiCameraComposite(multiCameraIndex) : null;
                 if (multiCameraComposition != null && multiCameraComposition.RenderCamera != null)
                 {
                     multiCameraComposition.RenderCamera.depth = timelineIndex + 1f;
@@ -365,13 +382,13 @@ namespace Gallop.Live.Cutt
                 }
 
                 bool isFading;
-                bool updated = AlterUpdate_MultiCameraSwitcher(sheet, curPosKey, nextPosKey, (int)currentFrame, timelineIndex, out isFading);
+                bool updated = AlterUpdate_MultiCameraSwitcher(sheet, curPosKey, nextPosKey, (int)currentFrame, multiCameraIndex, out isFading);
 
                 bool isSingleMask = curPosKey.maskType == LiveTimelineKeyMultiCameraPositionData.MaskType.Single;
                 bool isScreenDivide = curPosKey.maskType != LiveTimelineKeyMultiCameraPositionData.MaskType.All && !isSingleMask;
                 if (driver != null)
                 {
-                    driver.ApplyScreenDivide(timelineIndex, isScreenDivide, isSingleMask);
+                    driver.ApplyScreenDivide(multiCameraIndex, isScreenDivide, isSingleMask);
                 }
                 if (multiCameraComposition != null)
                 {
@@ -383,7 +400,7 @@ namespace Gallop.Live.Cutt
                     continue;
                 }
 
-                CacheCamera cacheCamera = _multiCameraCache[timelineIndex];
+                CacheCamera cacheCamera = _multiCameraCache[multiCameraIndex];
                 if (cacheCamera == null || cacheCamera.camera == null)
                 {
                     continue;
@@ -401,6 +418,7 @@ namespace Gallop.Live.Cutt
                 float fieldOfView;
                 Vector3 maskOffset;
                 float maskRoll;
+                float maskCentralAngle;
 
                 if (nextPosKey != null && nextPosKey.interpolateType != 0)
                 {
@@ -409,6 +427,7 @@ namespace Gallop.Live.Cutt
                     maskOffset = LerpWithoutClamp(curPosKey.maskOffset, nextPosKey.maskOffset, t);
                     maskRoll = LerpWithoutClamp(curPosKey.maskRoll, nextPosKey.maskRoll, t);
                     zAngle = LerpWithoutClamp(curPosKey.roll, nextPosKey.roll, t);
+                    maskCentralAngle = LerpWithoutClamp(curPosKey.MaskCentralAngle, nextPosKey.MaskCentralAngle, t);
                     if (multiCameraComposition != null)
                     {
                         multiCameraComposition.LineThickness = LerpWithoutClamp(curPosKey.lineThickness, nextPosKey.lineThickness, t);
@@ -422,6 +441,7 @@ namespace Gallop.Live.Cutt
                     maskOffset = curPosKey.maskOffset;
                     maskRoll = curPosKey.maskRoll;
                     zAngle = curPosKey.roll;
+                    maskCentralAngle = curPosKey.MaskCentralAngle;
                     if (multiCameraComposition != null)
                     {
                         multiCameraComposition.LineThickness = curPosKey.lineThickness;
@@ -439,8 +459,20 @@ namespace Gallop.Live.Cutt
                 camera.farClipPlane = curPosKey.farClip;
                 camera.fieldOfView = fieldOfView;
 
+                if (multiCameraIndex < _multiCameraRollArray.Length)
+                {
+                    _multiCameraRollArray[multiCameraIndex] = zAngle;
+                }
+
                 float baseMaskRoll = GetMultiCameraMaskRollFromMaskType(curPosKey.maskType);
                 float normalizedMaskRoll = (baseMaskRoll + maskRoll) / 360f;
+
+                // 扇形遮罩偏角计算
+                float fanOffset = 0f;
+                if (curPosKey.maskType == LiveTimelineKeyMultiCameraPositionData.MaskType.Fan)
+                {
+                    fanOffset = (90f - maskCentralAngle * 0.5f) / 360f;
+                }
 
                 if (multiCameraComposition != null)
                 {
@@ -448,7 +480,7 @@ namespace Gallop.Live.Cutt
                         maskOffset.x,
                         maskOffset.y,
                         normalizedMaskRoll,
-                        multiCameraComposition.TransformParameter.w
+                        fanOffset
                     );
                     multiCameraComposition.MaskRoll = baseMaskRoll + maskRoll;
                 }
@@ -460,23 +492,36 @@ namespace Gallop.Live.Cutt
                         cacheCamera.cacheTransform.position = pos;
                         cacheCamera.cacheTransform.localRotation = Quaternion.Euler(0f, 0f, zAngle);
                     }
+
+                    if (updated && curPosKey.updateMainCamera)
+                    {
+                        _multiCameraPosition = pos;
+                        _multiCameraFieldOfView = fieldOfView;
+                        _updateMultiCameraIndexToMainCamera = multiCameraIndex;
+                    }
                 }
                 else if (cacheCamera.cacheTransform != null)
                 {
                     cacheCamera.cacheTransform.localRotation = Quaternion.Euler(0f, 0f, zAngle);
+                    if (updated && curPosKey.updateMainCamera)
+                    {
+                        _multiCameraPosition = cacheCamera.cacheTransform.position;
+                        _multiCameraFieldOfView = fieldOfView;
+                        _updateMultiCameraIndexToMainCamera = multiCameraIndex;
+                    }
                 }
 
-                if (_multiCamera != null && timelineIndex < _multiCamera.Length && _multiCamera[timelineIndex] != null)
+                if (_multiCamera != null && multiCameraIndex < _multiCamera.Length && _multiCamera[multiCameraIndex] != null)
                 {
-                    if (_multiCamera[timelineIndex].maskIndex >= 0)
+                    if (_multiCamera[multiCameraIndex].maskIndex >= 0)
                     {
-                        _multiCamera[timelineIndex].MaskOffset = maskOffset;
-                        _multiCamera[timelineIndex].MaskRoll = baseMaskRoll + maskRoll;
+                        _multiCamera[multiCameraIndex].MaskOffset = maskOffset;
+                        _multiCamera[multiCameraIndex].MaskRoll = baseMaskRoll + maskRoll;
                     }
                 }
 
                 OnUpdateMultiCameraPosition?.Invoke(
-                    timelineIndex,
+                    multiCameraIndex,
                     cacheCamera.cacheTransform != null ? cacheCamera.cacheTransform.position : Vector3.zero,
                     fieldOfView,
                     zAngle,
@@ -486,7 +531,6 @@ namespace Gallop.Live.Cutt
                     curPosKey.enableMultiCamera
                 );
             }
-
         }
 
         public void AlterUpdate_MultiCameraLookAt(LiveTimelineWorkSheet sheet, float currentFrame)
@@ -499,12 +543,28 @@ namespace Gallop.Live.Cutt
             int count = sheet.multiCameraLookAtKeys.Count;
             for (int i = 0; i < count; i++)
             {
-                if (i >= _multiCameraCache.Length)
+                int timelineIndex = i;
+                LiveTimelineMultiCameraLookAtData lookAtData = sheet.multiCameraLookAtKeys[timelineIndex];
+                if (lookAtData == null)
                 {
-                    break;
+                    continue;
                 }
 
-                LiveTimelineKeyMultiCameraLookAtDataList keys = sheet.multiCameraLookAtKeys[i].keys;
+                // 优先消费 LookAt 轨道自身反序列化的 MultiCameraNo；若未配置或超出范围则回退至对应 Pos 轨道或循环索引
+                int multiCameraNo = lookAtData.MultiCameraNo;
+                if (multiCameraNo < 0 || multiCameraNo >= _multiCameraCache.Length)
+                {
+                    multiCameraNo = (sheet.multiCameraPosKeys != null && timelineIndex < sheet.multiCameraPosKeys.Count)
+                        ? sheet.multiCameraPosKeys[timelineIndex].MultiCameraNo
+                        : timelineIndex;
+                }
+
+                if (multiCameraNo < 0 || multiCameraNo >= _multiCameraCache.Length)
+                {
+                    continue;
+                }
+
+                LiveTimelineKeyMultiCameraLookAtDataList keys = lookAtData.keys;
                 if (keys == null || keys.Count == 0)
                 {
                     continue;
@@ -516,15 +576,22 @@ namespace Gallop.Live.Cutt
                 }
 
                 FindTimelineKey(out LiveTimelineKey curKey, out LiveTimelineKey nextKey, keys, currentFrame);
-                if (curKey != null && CalculateMultiCameraLookAt(out Vector3 lookAtPos, sheet, curKey, nextKey, currentFrame, i))
+                if (curKey != null && CalculateMultiCameraLookAt(out Vector3 lookAtPos, sheet, curKey, nextKey, currentFrame, timelineIndex))
                 {
-                    CacheCamera cacheCamera = _multiCameraCache[i];
+                    CacheCamera cacheCamera = _multiCameraCache[multiCameraNo];
                     if (cacheCamera != null && cacheCamera.cacheTransform != null)
                     {
                         cacheCamera.cacheTransform.LookAt(lookAtPos);
+                        float roll = multiCameraNo < _multiCameraRollArray.Length ? _multiCameraRollArray[multiCameraNo] : 0f;
+                        cacheCamera.cacheTransform.Rotate(0f, 0f, roll);
+
+                        if (_updateMultiCameraIndexToMainCamera == multiCameraNo)
+                        {
+                            _multiCameraRotation = cacheCamera.cacheTransform.rotation;
+                        }
                     }
 
-                    OnUpdateMultiCameraLookAt?.Invoke(i, lookAtPos);
+                    OnUpdateMultiCameraLookAt?.Invoke(multiCameraNo, lookAtPos);
                 }
             }
         }
@@ -535,6 +602,9 @@ namespace Gallop.Live.Cutt
             {
                 return;
             }
+
+            // 每帧初始重置主相机覆盖标记
+            _updateMultiCameraIndexToMainCamera = -1;
 
             LiveCameraTransitionDriver driver = GetTransitionDriver();
             if (driver != null)
@@ -556,6 +626,22 @@ namespace Gallop.Live.Cutt
                 if (_isMultiCameraEnable)
                 {
                     AlterUpdate_MultiCameraLookAt(sheet, currentFrame);
+                }
+            }
+
+            // 覆盖主相机姿态（如果多机位当前关键帧开启了 updateMainCamera）
+            if (_updateMultiCameraIndexToMainCamera != -1 && _cameraArray != null)
+            {
+                int targetIndex = sheet.targetCameraIndex;
+                if (targetIndex >= 0 && targetIndex < _cameraArray.Length)
+                {
+                    CacheCamera targetCamera = _cameraArray[targetIndex];
+                    if (targetCamera != null && targetCamera.cacheTransform != null && targetCamera.camera != null)
+                    {
+                        targetCamera.cacheTransform.position = _multiCameraPosition;
+                        targetCamera.cacheTransform.rotation = _multiCameraRotation;
+                        targetCamera.camera.fieldOfView = _multiCameraFieldOfView;
+                    }
                 }
             }
 

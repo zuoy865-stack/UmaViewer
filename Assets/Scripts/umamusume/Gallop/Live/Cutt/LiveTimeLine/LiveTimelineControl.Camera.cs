@@ -248,6 +248,70 @@ namespace Gallop.Live.Cutt
             {
                 retPos /= (float)num;
             }
+            else if (num == 0)
+            {
+                // 防御保护：当时间轴请求的角色尚未生成或定位器为空时（如高序号伴舞角色），严禁返回 Vector3.zero 导致镜头塌陷至原点仰视
+                // 1. 尝试从 Director 舞台站位节点 charaObjs 获取世界坐标并叠加部位高度
+                if (Director.instance != null && Director.instance.charaObjs != null)
+                {
+                    float heightOffset = 0.8f;
+                    switch (parts)
+                    {
+                        case LiveCameraCharaParts.Face:
+                        case LiveCameraCharaParts.ConstFaceHeight:
+                        case LiveCameraCharaParts.InitFaceHeight:
+                        case LiveCameraCharaParts.InitialHeightFace:
+                            heightOffset = 1.4f;
+                            break;
+                        case LiveCameraCharaParts.Chest:
+                        case LiveCameraCharaParts.ConstChestHeight:
+                        case LiveCameraCharaParts.InitChestHeight:
+                        case LiveCameraCharaParts.InitialHeightChest:
+                            heightOffset = 1.1f;
+                            break;
+                        case LiveCameraCharaParts.Waist:
+                        case LiveCameraCharaParts.ConstWaistHeight:
+                        case LiveCameraCharaParts.InitWaistHeight:
+                        case LiveCameraCharaParts.InitialHeightWaist:
+                            heightOffset = 0.8f;
+                            break;
+                        case LiveCameraCharaParts.Foot:
+                            heightOffset = 0.05f;
+                            break;
+                        default:
+                            heightOffset = 0.8f;
+                            break;
+                    }
+
+                    int standCount = 0;
+                    for (int i = 0; i < 20; i++)
+                    {
+                        if (posFlags.hasFlag(i) && i < Director.instance.charaObjs.Count && Director.instance.charaObjs[i] != null)
+                        {
+                            retPos += Director.instance.charaObjs[i].position + new Vector3(0f, heightOffset, 0f);
+                            standCount++;
+                        }
+                    }
+
+                    if (standCount > 0)
+                    {
+                        retPos /= (float)standCount;
+                        return retPos;
+                    }
+                }
+
+                // 2. 尝试从已实例化的其他角色定位器中寻找有效位置
+                for (int i = 0; i < liveCharactorLocators.Length; i++)
+                {
+                    if (liveCharactorLocators[i] != null)
+                    {
+                        return liveCharactorLocators[i].liveCharaPosition;
+                    }
+                }
+
+                // 3. 终极兜底：舞台中心点
+                return liveStageCenterPos;
+            }
 
             return retPos;
         }

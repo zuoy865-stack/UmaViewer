@@ -38,6 +38,16 @@ namespace Gallop.Live
 
         public LiveCameraTransitionDriver CameraTransitionDriver => _cameraTransitionDriver;
 
+        /// <summary>
+        /// 提供给舞台大屏监视器（StageMonitorDriver）的多机位实时离屏合成纹理
+        /// </summary>
+        public RenderTexture MultiCameraToMonitorTexture => _finalDisplayRT;
+
+        /// <summary>
+        /// 当前帧多机位是否处于出画渲染或过渡状态
+        /// </summary>
+        public bool IsMultiCameraActive => ShouldCompositeThisFrame();
+
         public MultiCameraComposite GetMultiCameraComposite(int index)
         {
             if (_multiCameraComposites != null && index >= 0 && index < _multiCameraComposites.Length)

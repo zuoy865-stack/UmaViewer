@@ -149,6 +149,12 @@ public partial class UmaViewerBuilder : MonoBehaviour
                         .charaMotSeqList
                         .Count;
 
+                    // 当舞台站位节点数（伴舞/多机位目标）大于动作轨人数时，扩充至全部站位，确保高序号伴舞角色定位器就绪
+                    if (controller.charaObjs != null && controller.charaObjs.Count > actualMemberCount)
+                    {
+                        actualMemberCount = controller.charaObjs.Count;
+                    }
+
                     if (actualMemberCount > liveCharacters.Count && liveCharacters.Count > 0)
                     {
                         Debug.LogWarning(

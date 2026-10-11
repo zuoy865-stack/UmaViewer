@@ -485,17 +485,25 @@ namespace Gallop.Live
                     }
                     if (targets.Count == 0) continue;
 
-                    // 目标 1：严格检查有效视频播放条件（dispID > 0 且存在有效主纹理）或 MonitorCamera 实时画面
+                    // 目标 1：严格检查有效视频播放条件（dispID > 0 且存在有效主纹理）或实时摄像机画面（MonitorCamera/MultiCamera）
                     MonitorShaderState state = default;
                     bool isPlayable = false;
 
-                    // 检查当前关键帧是否标记使用 MonitorCamera 实时摄像机画面
+                    // 检查当前关键帧是否标记使用 MonitorCamera 或在 dispID == 0 且多机位处于出画状态时接入多机位实时画面
                     bool useMonitorCam = curKey.IsMonitorCameraFlag() || curKey.IsForcedUseMonitorCamera;
-                    RenderTexture monitorCamRT = (useMonitorCam && Director.instance != null) ? Director.instance.MonitorCameraTexture : null;
-
-                    if (monitorCamRT != null)
+                    RenderTexture cameraRT = null;
+                    if (useMonitorCam && Director.instance != null && Director.instance.MonitorCameraTexture != null)
                     {
-                        state.main.texture = monitorCamRT;
+                        cameraRT = Director.instance.MonitorCameraTexture;
+                    }
+                    else if (curKey.dispID == 0 && Director.instance != null && Director.instance.IsMultiCameraActive && Director.instance.MultiCameraToMonitorTexture != null)
+                    {
+                        cameraRT = Director.instance.MultiCameraToMonitorTexture;
+                    }
+
+                    if (cameraRT != null)
+                    {
+                        state.main.texture = cameraRT;
                         state.hasMainTexture = true;
                         state.alpha = curKey.blendFactor > 0.001f ? curKey.blendFactor : 1f;
                         state.width = curKey.size.x;
@@ -518,7 +526,7 @@ namespace Gallop.Live
 
                     if (isPlayable)
                     {
-                        // 触发有效视频播放：恢复 Renderer.enabled = true，并按时间轴参数写入主纹理与 Alpha
+                        // 触发有效视频/摄像机播放：恢复 Renderer.enabled = true，并按时间轴参数写入主纹理与 Alpha
                         for (int j = 0; j < targets.Count; j++)
                         {
                             MonitorMaterialBinding target = targets[j];
@@ -531,14 +539,14 @@ namespace Gallop.Live
                     else
                     {
                         // 完善平滑回退：当当前 Live 缺乏专属 UVMovie 切片（dispID <= 0 或 contextSlots 为空）时：
-                        // 保持点唱机等屏幕网格 Renderer.enabled = true，材质 _Alpha 维持基准不透明度（如 1f）并保留其原始 MainTex，严禁无差别 SetBindingIdle 导致屏幕被强制透明隐藏或变黑；
-                        // 普通舞台大屏则保持或切换为 100% 透明透光与隐藏，绝不遮挡夕阳
+                        // 仅点唱机等自备UI封面的屏幕网格执行 SetBindingFallback 维持原始贴图；
+                        // 普通舞台大屏若无实时摄像机或有效视频输入，必须 SetBindingIdle 保持 100% 透明透光，严禁误刷纯白默认底图形成白色方块
                         for (int j = 0; j < targets.Count; j++)
                         {
                             MonitorMaterialBinding target = targets[j];
                             if (target != null && !_activeBindingsThisFrame.Contains(target))
                             {
-                                if (target.isAudioMonitor || curKey.dispID <= 0 || _provider.ContextSlotCount == 0)
+                                if (target.isAudioMonitor)
                                 {
                                     SetBindingFallback(target);
                                     _activeBindingsThisFrame.Add(target);
