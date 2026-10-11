@@ -59,7 +59,8 @@ public class UmaViewerDownload : MonoBehaviour
         while (!www.isDone) { }
         if (www.result != UnityWebRequest.Result.Success)
         {
-            Debug.LogError(www.error);
+            // 通过统一错误管理器报告下载失败并进行友好提示与去重
+            UmaErrorManager.ReportDownloadError(entry, www.error, baseurl);
             callback?.Invoke($"Failed to download resources : {www.error}", UIMessageType.Error);
         }
         else
@@ -84,7 +85,8 @@ public class UmaViewerDownload : MonoBehaviour
                 callback?.Invoke(i, entries.Count, "DownLoading");
             }
             CurrentCoroutinesCount++;
-            downloadCoroutines.Add(Instance.StartCoroutine(DownloadTask(entry)));
+            // 将分发子协程的宿主从易受场景切换影响的 UI 实例（UmaViewerUI.Instance）替换为全局持久单例 UmaAssetManager.instance
+            downloadCoroutines.Add(UmaAssetManager.instance.StartCoroutine(DownloadTask(entry)));
         }
 
         yield return downloadWaitUntilComplete;
@@ -92,23 +94,28 @@ public class UmaViewerDownload : MonoBehaviour
 
     public static IEnumerator DownloadTask(UmaDatabaseEntry entry)
     {
-        string baseurl = (string.IsNullOrEmpty(Path.GetExtension(entry.Name)) ? GetAssetRequestUrl(entry.Url) : GetGenericRequestUrl(entry.Url));
-        using (UnityWebRequest www = UnityWebRequest.Get(baseurl))
+        try
         {
-            yield return www.SendWebRequest();
-            if (www.result != UnityWebRequest.Result.Success)
+            string baseurl = (string.IsNullOrEmpty(Path.GetExtension(entry.Name)) ? GetAssetRequestUrl(entry.Url) : GetGenericRequestUrl(entry.Url));
+            using (UnityWebRequest www = UnityWebRequest.Get(baseurl))
             {
-                if (Instance)
+                yield return www.SendWebRequest();
+                if (www.result != UnityWebRequest.Result.Success)
                 {
-                    Instance.ShowMessage($"Failed to download resources : {www.error}", UIMessageType.Error);
+                    // 统一错误处理，向 UI 与控制台报告人性化指引
+                    UmaErrorManager.ReportDownloadError(entry, www.error, baseurl);
+                }
+                else
+                {
+                    SaveDownloadedAsset(entry, www.downloadHandler.data);
                 }
             }
-            else
-            {
-                SaveDownloadedAsset(entry, www.downloadHandler.data);
-            }
         }
-        CurrentCoroutinesCount--;
+        finally
+        {
+            // 确保无论发生何种网络异常或写入错误，CurrentCoroutinesCount 均能可靠递减并归零，防止加载进度条挂起卡死
+            CurrentCoroutinesCount--;
+        }
     }
 
     public static async void DownloadAssets(IEnumerable<UmaDatabaseEntry> entrys)
@@ -132,7 +139,8 @@ public class UmaViewerDownload : MonoBehaviour
             await Task.Run(() => { while (!www.isDone) { } });
             if (www.result != UnityWebRequest.Result.Success)
             {
-                Debug.LogError(www.error);
+                // 异步任务同样接入统一错误管理器
+                UmaErrorManager.ReportDownloadError(entry, www.error, baseurl);
             }
             else
             {
@@ -176,16 +184,19 @@ public class UmaViewerDownload : MonoBehaviour
 
     public static string GetManifestRequestUrl(string hash)
     {
-        return $"{MANIFEST_ROOT_URL}/{hash.Substring(0, 2)}/{hash}";
+        // 去除根前缀末尾的斜杠，防止与后续相对路径拼接时产生双斜杠（//）引发 Akamai CDN 的 HTTP 400/403/404 错误
+        return $"{MANIFEST_ROOT_URL.TrimEnd('/')}/{hash.Substring(0, 2)}/{hash}";
     }
 
     public static string GetGenericRequestUrl(string hash)
     {
-        return $"{GENERIC_BASE_URL}/{hash.Substring(0, 2)}/{hash}";
+        // 去除根前缀末尾的斜杠，防止与后续相对路径拼接时产生双斜杠（//）引发 Akamai CDN 的 HTTP 400/403/404 错误
+        return $"{GENERIC_BASE_URL.TrimEnd('/')}/{hash.Substring(0, 2)}/{hash}";
     }
     
     public static string GetAssetRequestUrl(string hash)
     {
-        return $"{ASSET_BASE_URL}/{hash.Substring(0, 2)}/{hash}";
+        // 去除资源前缀末尾的斜杠（如 Windows 平台配置下的结尾斜杠），防止拼装出 assetbundles//xx/xxxx 导致 CDN 拒绝访问
+        return $"{ASSET_BASE_URL.TrimEnd('/')}/{hash.Substring(0, 2)}/{hash}";
     }
 }

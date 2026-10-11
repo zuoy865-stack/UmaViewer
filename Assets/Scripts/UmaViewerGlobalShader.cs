@@ -111,8 +111,15 @@ public class UmaViewerGlobalShader : MonoBehaviour
         _ColorArray.Add(_ColorArray_9);
         Shader.SetGlobalVectorArray("_ColorArray", _ColorArray);
 
+        // 全局雾效除零安全防御：若 FogLength 接近或等于 0，则赋以极大安全距离（100000f），防止 GPU 计算除以零导致远景天空盒被死白雾效全屏吞噬
+        Vector4 safeFogLength = _Global_FogLength;
+        if (Mathf.Abs(safeFogLength.x) < 0.0001f) safeFogLength.x = 100000f;
+        if (Mathf.Abs(safeFogLength.y) < 0.0001f) safeFogLength.y = 100000f;
+        if (Mathf.Abs(safeFogLength.z) < 0.0001f) safeFogLength.z = 100000f;
+        if (Mathf.Abs(safeFogLength.w) < 0.0001f) safeFogLength.w = 100000f;
+
         Shader.SetGlobalVector("_Global_FogMinDistance", _Global_FogMinDistance);
-        Shader.SetGlobalVector("_Global_FogLength", _Global_FogLength);
+        Shader.SetGlobalVector("_Global_FogLength", safeFogLength);
 
         _DirtRate.Clear();
         _DirtRate.Add(_DirtRate_0);
@@ -136,14 +143,19 @@ public class UmaViewerGlobalShader : MonoBehaviour
 
     private void FixedUpdate()
     {
-        //Used to calculate the correct outline
-        //Outline need more adjust in live
-        var umaContainer = UmaViewerBuilder.Instance.CurrentUMAContainer;
+        // 用于动态计算描边粗细（轮廓在 Live 演出或相机缩放时自动适配）
+        // 防御性保护：构建器单例尚未就绪时优雅退出，杜绝空引用崩溃
+        var builder = UmaViewerBuilder.Instance;
+        if (builder == null) return;
+
+        var umaContainer = builder.CurrentUMAContainer;
         if (umaContainer != null && umaContainer.UpBodyBone)
         {
             var upBone = umaContainer.UpBodyBone;
-            var aniCamera = UmaViewerBuilder.Instance.AnimationCamera;
-            var camera = aniCamera.enabled ? aniCamera : Camera.main;
+            var aniCamera = builder.AnimationCamera;
+            var camera = (aniCamera != null && aniCamera.enabled) ? aniCamera : Camera.main;
+            if (camera == null) return;
+
             var distance = Vector3.Distance(camera.transform.position, upBone.transform.position);
             var outlineWidth = (umaContainer.IsMini ? 20f : 40.0f) * (distance * Mathf.Tan(camera.fieldOfView * 0.5f * Mathf.Deg2Rad));
             Shader.SetGlobalFloat("_GlobalCameraFov", outlineWidth);
@@ -152,7 +164,6 @@ public class UmaViewerGlobalShader : MonoBehaviour
         {
             Shader.SetGlobalFloat("_GlobalCameraFov", 30);
         }
-       
     }
 
    

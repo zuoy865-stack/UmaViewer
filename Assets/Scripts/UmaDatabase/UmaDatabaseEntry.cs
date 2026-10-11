@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -96,10 +96,8 @@ public class UmaDatabaseEntry
     //TODO Make it async
     public static void DownloadAsset(UmaDatabaseEntry entry)
     {
-        UmaViewerDownload.DownloadAssetSync(entry, delegate (string msg, UIMessageType type)
-        {
-            UmaViewerUI.Instance.ShowMessage(msg, type);
-        });
+        // 异常诊断与错误提示统一由 UmaErrorManager 进行处理与频控
+        UmaViewerDownload.DownloadAssetSync(entry);
     }
 
 }

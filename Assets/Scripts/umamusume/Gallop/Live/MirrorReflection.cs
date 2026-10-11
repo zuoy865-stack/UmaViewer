@@ -27,7 +27,8 @@ public class MirrorReflection : MonoBehaviour
 
     [Header("镜面基础设置")]
     [SerializeField] private LayerMask _renderLayers = ~0;
-    [SerializeField] private int _mirrorTextureSize = 1024;
+    // 默认纹理长边优化为 512，相比 1024 节省 75% 的显存与填充开销，兼顾反射质量与多角色同台性能
+    [SerializeField] private int _mirrorTextureSize = 512;
     [SerializeField] private float _mirrorClipPlaneOffset = 0.07f;
     [SerializeField] private Camera _baseCamera;
     [SerializeField] private float _mirrorReflectionRate = 0f;
@@ -78,6 +79,8 @@ public class MirrorReflection : MonoBehaviour
     private event Action<ScriptableRenderContext, Camera> _endCameraRenderingCallbacks;
 
     private bool _isRenderingNow;
+    // 记录最近一次渲染的帧号，防止同帧内 LateUpdate 与 Director.Mirror 发生重复重绘
+    private int _lastRenderedFrame = -1;
 
     private readonly UniversalRenderPipeline.SingleCameraRequest _singleCameraRequest =
         new UniversalRenderPipeline.SingleCameraRequest();
@@ -906,7 +909,19 @@ public class MirrorReflection : MonoBehaviour
         if (_isRenderingNow)
             return;
 
+        // 同帧防重：单帧内若已被 Director 或组件自身渲染过，直接跳过
+        if (_lastRenderedFrame == Time.frameCount)
+            return;
+
+        // 反射率极低或网格未激活时无需渲染
+        if (_mirrorReflectionRate <= 0.001f)
+            return;
+
+        if (_receivedMirrorMeshRenderer != null && !_receivedMirrorMeshRenderer.enabled)
+            return;
+
         _isRenderingNow = true;
+        _lastRenderedFrame = Time.frameCount;
         try
         {
             UpdateRenderTexture();

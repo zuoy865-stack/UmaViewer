@@ -5,6 +5,8 @@ namespace Gallop.Live.Cutt
     [Serializable]
     public class LiveTimelineKeyMonitorCameraPositionData : LiveTimelineKeyCameraPositionData
     {
+        public float fov = 45f;
+        public float roll;
     }
 
     [Serializable]

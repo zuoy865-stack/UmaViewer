@@ -50,6 +50,11 @@ namespace Gallop.Cyalume
 
         protected MeshFilter[] _meshFilters = Array.Empty<MeshFilter>();
         protected Material[] _materialArray = Array.Empty<Material>();
+
+        // 逐目标渲染器的实例化材质槽缓存（下标与 _targetRendererList 对齐）。
+        // renderer.materials 每次访问都会克隆一整份 Material[]；滚动偏移是每帧驱动的，
+        // 若每帧去取就会形成稳定的托管分配热点，所以在收集阶段取一次并缓存。
+        protected Material[][] _targetMaterialSlots = Array.Empty<Material[]>();
         protected Color32[][][] _colorsTable = Array.Empty<Color32[][]>();
 
         protected readonly Dictionary<int, Texture2D> _textureSet = new Dictionary<int, Texture2D>();
@@ -165,6 +170,7 @@ namespace Gallop.Cyalume
             _textureSet.Clear();
             _meshFilters = Array.Empty<MeshFilter>();
             _materialArray = Array.Empty<Material>();
+            _targetMaterialSlots = Array.Empty<Material[]>();
             _colorsTable = Array.Empty<Color32[][]>();
             _lastAppliedPatternId = -1;
             _lastAppliedScrollOffset = float.NaN;
@@ -788,6 +794,7 @@ namespace Gallop.Cyalume
         {
             var meshFilters = new List<MeshFilter>();
             var materials = new List<Material>();
+            var slotsPerRenderer = new Material[_targetRendererList.Count][];
 
             for (int i = 0; i < _targetRendererList.Count; i++)
             {
@@ -803,6 +810,8 @@ namespace Gallop.Cyalume
                 if (slots == null)
                     continue;
 
+                slotsPerRenderer[i] = slots;
+
                 for (int j = 0; j < slots.Length; j++)
                 {
                     var material = slots[j];
@@ -813,6 +822,7 @@ namespace Gallop.Cyalume
 
             _meshFilters = meshFilters.ToArray();
             _materialArray = materials.ToArray();
+            _targetMaterialSlots = slotsPerRenderer;
         }
 
         protected bool TryGetCurrentPlayback(out int patternId, out float patternStartTime, out float playSpeed, out int choreographyType, out float liveTime)
@@ -898,9 +908,14 @@ namespace Gallop.Cyalume
                 if (!renderer)
                     continue;
 
-                var materials = renderer.materials;
+                // 用收集阶段缓存好的实例化材质槽，避免每帧 renderer.materials 克隆数组
+                Material[] materials = (i < _targetMaterialSlots.Length) ? _targetMaterialSlots[i] : null;
                 if (materials == null)
-                    continue;
+                {
+                    materials = renderer.materials;
+                    if (materials == null)
+                        continue;
+                }
 
                 for (int slot = 0; slot < materials.Length; slot++)
                 {
@@ -939,9 +954,14 @@ namespace Gallop.Cyalume
                 if (!renderer)
                     continue;
 
-                var materials = renderer.materials;
+                // 用收集阶段缓存好的实例化材质槽，避免每帧 renderer.materials 克隆数组
+                Material[] materials = (i < _targetMaterialSlots.Length) ? _targetMaterialSlots[i] : null;
                 if (materials == null)
-                    continue;
+                {
+                    materials = renderer.materials;
+                    if (materials == null)
+                        continue;
+                }
 
                 for (int slot = 0; slot < materials.Length; slot++)
                 {

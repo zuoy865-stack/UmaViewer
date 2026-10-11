@@ -126,7 +126,7 @@ internal static class PMXBoneExporter
         Transform rightEye = Find(indexes.Keys, "Eye_R");
         if (head == null || (leftEye == null && rightEye == null)) return -1;
 
-        // Preserve the standard both-eyes control chain while reparenting both eye bones.
+        // 双眼控制先于追加旋转目标计算，避免源骨索引靠后造成一帧滞后。
         int bothEyes = AddVirtualBone(
             bones,
             "\u4e21\u76ee",
@@ -135,9 +135,20 @@ internal static class PMXBoneExporter
             indexes[head],
             false);
 
-        if (leftEye != null) bones[indexes[leftEye]].ParentIndex = bothEyes;
-        if (rightEye != null) bones[indexes[rightEye]].ParentIndex = bothEyes;
+        if (leftEye != null) ConfigureEyeAppendRotation(bones, indexes[leftEye], bothEyes, indexes[head]);
+        if (rightEye != null) ConfigureEyeAppendRotation(bones, indexes[rightEye], bothEyes, indexes[head]);
         return bothEyes;
+    }
+
+    private static void ConfigureEyeAppendRotation(List<Bone> bones, int eyeIndex, int bothEyes, int head)
+    {
+        Bone eyeBone = bones[eyeIndex];
+        eyeBone.ParentIndex = head;
+        eyeBone.AppendRotate = true;
+        eyeBone.AppendTranslate = false;
+        eyeBone.AppendBoneVal.Index = bothEyes;
+        eyeBone.AppendBoneVal.Ratio = 1.0f;
+        eyeBone.TransformLevel = 1;
     }
 
     private static void SetBothEyesTailToNoseBridge(List<Bone> bones, int bothEyes,

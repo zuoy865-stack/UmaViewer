@@ -1,0 +1,2 @@
+[1001/102628.636:ERROR:third_party\crashpad\crashpad\util\win\registration_protocol_win.cc:108] CreateFile: 拒绝访问。 (0x5)
+[1001/102715.230:ERROR:third_party\crashpad\crashpad\util\win\registration_protocol_win.cc:108] CreateFile: 拒绝访问。 (0x5)

@@ -34,14 +34,17 @@ public class HandleManager : MonoBehaviour
     private void Update()
     {
         var camera = Camera.main;
-        var poseModeOn = UmaViewerUI.Instance.PoseManager.PoseModeOn;
+        var ui = UmaViewerUI.Instance;
+        // 防御性跳过：若 UI 或姿态管理器尚未就绪则不执行更新
+        if (ui == null || ui.PoseManager == null) return;
+        var poseModeOn = ui.PoseManager.PoseModeOn;
 
         if (Input.GetKeyDown(KeyCode.Space))
         {
             IKMode = !IKMode;
             if (IKMode)
             {
-                var ik = UmaViewerUI.Instance.PoseManager.PoseIK;
+                var ik = ui.PoseManager.PoseIK;
                 if (ik)
                 {
                     foreach (var effector in ik.solver.effectors)
@@ -58,7 +61,7 @@ public class HandleManager : MonoBehaviour
             }
             else
             {
-                var ik = UmaViewerUI.Instance.PoseManager.PoseIK;
+                var ik = ui.PoseManager.PoseIK;
                 if (ik)
                 {
                     ik.enabled = false;
@@ -68,10 +71,11 @@ public class HandleManager : MonoBehaviour
 
         foreach (var handle in AllHandles)
         {
+            if (handle == null) continue;
             handle.ForceDisplayOff(!poseModeOn);
             handle.UpdateManual(camera, EnabledLines && !IKMode);
 
-            if (handle.Popup.gameObject.activeInHierarchy)
+            if (handle.Popup != null && handle.Popup.gameObject.activeInHierarchy)
             {
                 handle.Popup.UpdateManual(camera);
             }
@@ -80,7 +84,8 @@ public class HandleManager : MonoBehaviour
 
     public static void RegisterHandle(UIHandle handle)
     {
-        var hm = UmaViewerUI.Instance.HandleManager;
+        var hm = UmaViewerUI.Instance?.HandleManager;
+        if (hm == null || handle == null) return;
         
         if (hm.AllHandles.Contains(handle))
         {
@@ -92,7 +97,8 @@ public class HandleManager : MonoBehaviour
 
     public static void UnregisterHandle(UIHandle handle)
     {
-        var hm = UmaViewerUI.Instance.HandleManager;
+        var hm = UmaViewerUI.Instance?.HandleManager;
+        if (hm == null || handle == null) return;
 
         if (!hm.AllHandles.Contains(handle))
         {
@@ -104,11 +110,12 @@ public class HandleManager : MonoBehaviour
 
     public static void CloseAllPopups()
     {
-        var hm = UmaViewerUI.Instance.HandleManager;
+        var hm = UmaViewerUI.Instance?.HandleManager;
+        if (hm == null) return;
 
         foreach(var handle in hm.AllHandles)
         {
-            if (handle.Popup.gameObject.activeInHierarchy)
+            if (handle != null && handle.Popup != null && handle.Popup.gameObject.activeInHierarchy)
             {
                 handle.TogglePopup();
             }

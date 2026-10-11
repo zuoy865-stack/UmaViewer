@@ -11,7 +11,7 @@ using UnityEngine;
 internal static class PMXSkirtPhysicsExporter
 {
     private const float SkirtMinimumPanelHalfWidth = 0.008f;
-    private const float SkirtMaximumPanelHalfWidth = 0.05f;
+    private const float SkirtMaximumPanelHalfWidth = 0.15f;
     private const float SkirtMinimumPanelHalfThickness = 0.003f;
     private const float SkirtMaximumPanelHalfThickness = 0.008f;
     private const float SkirtVerticalBendDegrees = 16f;
@@ -28,6 +28,9 @@ internal static class PMXSkirtPhysicsExporter
     {
         internal Transform Bone;
         internal Transform Child;
+        internal int BoneIndex;
+        internal bool IsVirtual;
+        internal string BoneName;
         internal int ColumnIndex;
         internal int RowIndex;
         internal int RigidIndex;
@@ -93,9 +96,14 @@ internal static class PMXSkirtPhysicsExporter
     /// </summary>
     internal static void BuildSkirtPhysics(PMXPhysicsExporter.Context context, Transform coordinateRoot,
         PMXBoneExporter.Result boneResult, List<MMDRigidBody> rigidBodies, List<MMDJoint> joints,
-        Dictionary<Transform, int> dynamicRigidIndexes)
+        Dictionary<Transform, int> dynamicRigidIndexes, PMXSkirtLayoutExporter.Result layout = null)
     {
         if (context.SkirtController == null || context.SkirtColumns.Count < 3) return;
+        if (layout != null && layout.Columns.Count >= 3)
+        {
+            BuildFromLayout(context, coordinateRoot, boneResult, rigidBodies, joints, layout);
+            return;
+        }
 
         List<PMXPhysicsExporter.SkirtColumn> columns = OrderSkirtColumns(context.SkirtColumns, context.SkirtController, coordinateRoot);
         List<List<SkirtSegment>> segmentsByColumn = new List<List<SkirtSegment>>();
@@ -118,6 +126,8 @@ internal static class PMXSkirtPhysicsExporter
                 {
                     Bone = bone,
                     Child = child,
+                    BoneIndex = boneResult.BoneIndexes[bone],
+                    BoneName = bone.name,
                     ColumnIndex = columnIndex,
                     RowIndex = rowIndex,
                     Start = start,
@@ -130,10 +140,9 @@ internal static class PMXSkirtPhysicsExporter
             segmentsByColumn.Add(segments);
         }
 
-        // 少于三列或任意列没有有效首段时无法建立稳定的裙摆网格
+        // 旧路径只沿用已有的真实链段。
         if (segmentsByColumn.Count < 3 || segmentsByColumn.Any(segments => segments.Count == 0)) return;
-
-        bool closeRing = IsClosedSkirtRing(columns, context.SkirtController, coordinateRoot);
+        const bool closeRing = false;
         for (int columnIndex = 0; columnIndex < columns.Count; columnIndex++)
         {
             List<SkirtSegment> segments = segmentsByColumn[columnIndex];
@@ -142,8 +151,10 @@ internal static class PMXSkirtPhysicsExporter
                 SkirtSegment segment = segments[rowIndex];
                 Vector3 tangent = CalculateSkirtTangent(segmentsByColumn, columnIndex, rowIndex, closeRing);
                 segment.HalfWidth = EstimateSkirtPanelHalfWidth(
-                    segmentsByColumn, columnIndex, rowIndex, closeRing);
-                float configuredRadius = columns[columnIndex].Chain.Radii[segment.Bone];
+                    segmentsByColumn, columnIndex, rowIndex, closeRing, false);
+                float configuredRadius = segment.Bone != null && columns[columnIndex].Chain.Radii.ContainsKey(segment.Bone)
+                    ? columns[columnIndex].Chain.Radii[segment.Bone]
+                    : columns[columnIndex].Chain.Radii[columns[columnIndex].Chain.Root];
                 segment.HalfThickness = Mathf.Clamp(
                     configuredRadius * 0.25f,
                     SkirtMinimumPanelHalfThickness,
@@ -166,10 +177,11 @@ internal static class PMXSkirtPhysicsExporter
             {
                 SkirtSegment segment = segments[rowIndex];
                 float depthRatio = segments.Count > 1 ? rowIndex / (float)(segments.Count - 1) : 0f;
-                int boneIndex = boneResult.BoneIndexes[segment.Bone];
+                int boneIndex = segment.BoneIndex;
                 segment.RigidIndex = rigidBodies.Count;
                 rigidBodies.Add(CreateSkirtPanelBody(segment, boneIndex, depthRatio));
-                dynamicRigidIndexes[segment.Bone] = segment.RigidIndex;
+                if (segment.Bone != null)
+                    dynamicRigidIndexes[segment.Bone] = segment.RigidIndex;
                 joints.Add(CreateSkirtVerticalJoint(segment, parentRigidIndex, depthRatio));
                 parentRigidIndex = segment.RigidIndex;
             }
@@ -177,6 +189,147 @@ internal static class PMXSkirtPhysicsExporter
 
         AddSkirtLegColliders(
             context.SkirtController, columns, coordinateRoot, boneResult.BoneIndexes, rigidBodies);
+    }
+
+    private static void BuildFromLayout(PMXPhysicsExporter.Context context, Transform coordinateRoot,
+        PMXBoneExporter.Result boneResult, List<MMDRigidBody> rigidBodies, List<MMDJoint> joints,
+        PMXSkirtLayoutExporter.Result layout)
+    {
+        var columns = layout.Columns.ToList();
+        var originalPanels = BuildOriginalPanelFrames(context, coordinateRoot);
+        foreach (var group in columns.GroupBy(column => column.ComponentId))
+        {
+            List<PMXSkirtLayoutExporter.Column> groupColumns = group.ToList();
+            int sourceColumnCount = groupColumns.Count(column => column.SourceBoneIndexes.Count > 0);
+            if (sourceColumnCount == 0)
+            {
+                Debug.LogWarning("PMX 裙摆布局组件没有真实来源列，跳过增强刚体。");
+                continue;
+            }
+            int groupBodyStart = rigidBodies.Count;
+            bool closed = groupColumns.Count >= 3 && groupColumns.All(column => column.RegionClosed);
+            var table = new List<List<SkirtSegment>>();
+            foreach (PMXSkirtLayoutExporter.Column column in groupColumns)
+            {
+                var segments = new List<SkirtSegment>();
+                foreach (PMXSkirtLayoutExporter.Segment piece in column.Segments)
+                {
+                    float length = Vector3.Distance(piece.Start, piece.End);
+                    segments.Add(new SkirtSegment
+                    {
+                        Bone = column.Source.Chain.Root,
+                        BoneIndex = piece.BoneIndex,
+                        BoneName = piece.Name,
+                        IsVirtual = piece.IsVirtual,
+                        ColumnIndex = table.Count,
+                        RowIndex = piece.Row,
+                        Start = piece.Start,
+                        End = piece.End,
+                        Center = (piece.Start + piece.End) * 0.5f,
+                        Length = Mathf.Max(length, PMXPhysicsExporter.MinimumSegmentLength),
+                        RigidIndex = -1
+                    });
+                }
+                table.Add(segments);
+            }
+            for (int columnIndex = 0; columnIndex < table.Count; columnIndex++)
+            {
+                float radius = groupColumns[columnIndex].Source.Chain.Radii[groupColumns[columnIndex].Source.Chain.Root];
+                for (int rowIndex = 0; rowIndex < table[columnIndex].Count; rowIndex++)
+                {
+                    SkirtSegment segment = table[columnIndex][rowIndex];
+                    var piece = groupColumns[columnIndex].Segments[rowIndex];
+                    var originalPanel = originalPanels[piece.SourceBoneName];
+                    // 四分只改变纵向长度，横向宽度仍取原面板。
+                    segment.HalfWidth = originalPanel.HalfWidth;
+                    segment.HalfThickness = Mathf.Clamp(radius * 0.25f, SkirtMinimumPanelHalfThickness, SkirtMaximumPanelHalfThickness);
+                    // 同一原骨的四块沿用原面板朝向与横向尺寸。
+                    segment.Rotation = originalPanel.Rotation;
+                }
+            }
+            for (int columnIndex = 0; columnIndex < groupColumns.Count; columnIndex++)
+            {
+                PMXSkirtLayoutExporter.Column column = groupColumns[columnIndex];
+                List<SkirtSegment> segments = table[columnIndex];
+                int parentRigid = rigidBodies.Count;
+                rigidBodies.Add(CreateSkirtAnchorBodyFromLayout(column, segments.Count > 0 ? segments[0].Rotation : Vector3.zero));
+                for (int rowIndex = 0; rowIndex < segments.Count; rowIndex++)
+                {
+                    SkirtSegment segment = segments[rowIndex];
+                    float depth = segments.Count > 1 ? rowIndex / (float)(segments.Count - 1) : 0f;
+                    segment.RigidIndex = rigidBodies.Count;
+                    MMDRigidBody body = CreateEnhancedSkirtPanelBody(segment, segment.BoneIndex, depth);
+                    body.CollisionMask = PMXPhysicsExporter.CreateCollisionMaskAllowingAllExceptGroups(
+                        PMXPhysicsExporter.SkirtCollisionGroup);
+                    body.Dimemsions = new Vector3(segment.HalfWidth, segment.Length * 0.5f, segment.HalfThickness);
+                    body.Mass *= Mathf.Max(0.0001f, segment.HalfWidth * segment.Length);
+                    rigidBodies.Add(body);
+                    joints.Add(CreateSkirtVerticalJoint(segment, parentRigid, depth));
+                    parentRigid = segment.RigidIndex;
+                }
+            }
+            float massTotal = rigidBodies.Skip(groupBodyStart).Where(body => body.Type != MMDRigidBody.RigidBodyType.RigidTypeKinematic).Sum(body => body.Mass);
+            float budget = PMXPhysicsExporter.SkirtPreset.RootMass * sourceColumnCount;
+            if (massTotal > 0.0001f)
+                for (int i = groupBodyStart; i < rigidBodies.Count; i++)
+                    if (rigidBodies[i].Type != MMDRigidBody.RigidBodyType.RigidTypeKinematic) rigidBodies[i].Mass *= budget / massTotal;
+            var indexById = groupColumns.Select((column, index) => new { column.ColumnId, index })
+                .ToDictionary(pair => pair.ColumnId, pair => pair.index, StringComparer.Ordinal);
+            var linkedPairs = new HashSet<string>(StringComparer.Ordinal);
+            for (int columnIndex = 0; columnIndex < groupColumns.Count; columnIndex++)
+            {
+                foreach (string neighborId in groupColumns[columnIndex].NeighborColumnIds)
+                {
+                    if (!indexById.TryGetValue(neighborId, out int next)) continue;
+                    string pairKey = string.CompareOrdinal(groupColumns[columnIndex].ColumnId, neighborId) < 0
+                        ? groupColumns[columnIndex].ColumnId + "|" + neighborId : neighborId + "|" + groupColumns[columnIndex].ColumnId;
+                    if (!linkedPairs.Add(pairKey)) continue;
+                    int rows = Mathf.Min(table[columnIndex].Count, table[next].Count);
+                    for (int rowIndex = 0; rowIndex < rows; rowIndex++)
+                    {
+                        SkirtSegment left = table[columnIndex][rowIndex];
+                        SkirtSegment right = table[next][rowIndex];
+                        if (left.RigidIndex >= 0 && right.RigidIndex >= 0 && left.RigidIndex != right.RigidIndex)
+                            joints.Add(CreateSkirtHorizontalJoint(left, right));
+                    }
+                }
+            }
+        }
+        AddSkirtLegCollidersEnhanced(context.SkirtController, columns.Select(column => column.Source),
+            coordinateRoot, boneResult.BoneIndexes, rigidBodies, context.Mesh);
+    }
+
+    private static Dictionary<string, SkirtSegment> BuildOriginalPanelFrames(
+        PMXPhysicsExporter.Context context, Transform coordinateRoot)
+    {
+        var sources = OrderSkirtColumns(context.SkirtColumns, context.SkirtController, coordinateRoot);
+        // 仅复原旧面板局部框架；新横关节仍只用实际网格邻接。
+        bool closedFrame = IsClosedSkirtRing(sources, context.SkirtController, coordinateRoot);
+        var table = new List<List<SkirtSegment>>();
+        foreach (var source in sources)
+        {
+            var chain = GetOrderedLinearBones(source.Chain);
+            var panels = new List<SkirtSegment>();
+            for (int i = 0; i + 1 < chain.Count; i++)
+            {
+                Vector3 start = coordinateRoot.InverseTransformPoint(chain[i].position);
+                Vector3 end = coordinateRoot.InverseTransformPoint(chain[i + 1].position);
+                panels.Add(new SkirtSegment { BoneName = chain[i].name, Start = start, End = end,
+                    Center = (start + end) * 0.5f });
+            }
+            table.Add(panels);
+        }
+        var result = new Dictionary<string, SkirtSegment>(StringComparer.Ordinal);
+        for (int col = 0; col < table.Count; col++)
+            for (int row = 0; row < table[col].Count; row++)
+            {
+                var panel = table[col][row];
+                panel.Rotation = CalculatePanelRotation(panel.End - panel.Start,
+                    CalculateSkirtTangent(table, col, row, closedFrame));
+                panel.HalfWidth = EstimateSkirtPanelHalfWidth(table, col, row, closedFrame, false);
+                result.Add(panel.BoneName, panel);
+            }
+        return result;
     }
 
     private static PMXPhysicsExporter.Chain BuildChainFromRoot(CySpringParamDataElement element, Transform root)
@@ -285,26 +438,19 @@ internal static class PMXSkirtPhysicsExporter
     }
 
     private static float EstimateSkirtPanelHalfWidth(IList<List<SkirtSegment>> columns,
-        int columnIndex, int rowIndex, bool closeRing)
+        int columnIndex, int rowIndex, bool closeRing, bool enhanced)
     {
         SkirtSegment current = columns[columnIndex][rowIndex];
         SkirtSegment previous = GetNeighborSkirtSegment(columns, columnIndex - 1, rowIndex, closeRing);
         SkirtSegment next = GetNeighborSkirtSegment(columns, columnIndex + 1, rowIndex, closeRing);
-        float spacing = 0f;
-        int sampleCount = 0;
-        if (previous != null)
-        {
-            spacing += Vector3.Distance(current.Center, previous.Center);
-            sampleCount++;
-        }
-        if (next != null)
-        {
-            spacing += Vector3.Distance(current.Center, next.Center);
-            sampleCount++;
-        }
-        if (sampleCount == 0) return SkirtMinimumPanelHalfWidth;
-        // 采用 0.38f 系数留出微小周向间隙，防止相邻裙片刚体互相挤压与抖动
-        return Mathf.Clamp(spacing / sampleCount * 0.38f,
+        float spacing = 0f, sum = 0f;
+        int count = 0;
+        if (previous != null) { float d = Vector3.Distance(current.Center, previous.Center); spacing = Mathf.Max(spacing, d); sum += d; count++; }
+        if (next != null) { float d = Vector3.Distance(current.Center, next.Center); spacing = Mathf.Max(spacing, d); sum += d; count++; }
+        if (spacing <= 0f) return SkirtMinimumPanelHalfWidth;
+        if (!enhanced) return Mathf.Clamp(sum / count * 0.38f, SkirtMinimumPanelHalfWidth, 0.05f);
+        // 增强网络关闭自碰后，面板半宽覆盖最大相邻间距的一半。
+        return Mathf.Clamp(spacing * 0.5f,
             SkirtMinimumPanelHalfWidth, SkirtMaximumPanelHalfWidth);
     }
 
@@ -349,7 +495,7 @@ internal static class PMXSkirtPhysicsExporter
             NameEn = column.Chain.Root.name + "_skirt_anchor",
             AssociatedBoneIndex = boneIndex,
             CollisionGroup = PMXPhysicsExporter.SkirtCollisionGroup,
-            CollisionMask = PMXPhysicsExporter.CreateCollisionMaskOnlyCollideWith(
+            CollisionMask = PMXPhysicsExporter.CreateCollisionMaskAllowingAllExceptGroups(
                 PMXPhysicsExporter.SkirtLegCollisionGroup),
             Shape = MMDRigidBody.RigidBodyShape.RigidShapeSphere,
             Dimemsions = new Vector3(radius, 0, 0),
@@ -364,17 +510,24 @@ internal static class PMXSkirtPhysicsExporter
         };
     }
 
-    private static MMDRigidBody CreateSkirtPanelBody(SkirtSegment segment, int boneIndex,
-        float depthRatio)
+    private static MMDRigidBody CreateSkirtPanelBody(SkirtSegment segment, int boneIndex, float depthRatio)
+    { return CreateSkirtPanelBodyCore(segment, boneIndex, depthRatio, false); }
+
+    private static MMDRigidBody CreateEnhancedSkirtPanelBody(SkirtSegment segment, int boneIndex, float depthRatio)
+    { return CreateSkirtPanelBodyCore(segment, boneIndex, depthRatio, true); }
+
+    private static MMDRigidBody CreateSkirtPanelBodyCore(SkirtSegment segment, int boneIndex,
+        float depthRatio, bool enhanced)
     {
         return new MMDRigidBody
         {
-            Name = segment.Bone.name + "_skirt_physics",
-            NameEn = segment.Bone.name + "_skirt_physics",
+            Name = segment.BoneName + "_skirt_physics",
+            NameEn = segment.BoneName + "_skirt_physics",
             AssociatedBoneIndex = boneIndex,
             CollisionGroup = PMXPhysicsExporter.SkirtCollisionGroup,
-            CollisionMask = PMXPhysicsExporter.CreateCollisionMaskOnlyCollideWith(
-                PMXPhysicsExporter.SkirtLegCollisionGroup),
+            CollisionMask = enhanced
+                ? PMXPhysicsExporter.CreateCollisionMaskAllowingAllExceptGroups(PMXPhysicsExporter.SkirtCollisionGroup)
+                : PMXPhysicsExporter.CreateCollisionMaskAllowingAllExceptGroups(),
             Shape = MMDRigidBody.RigidBodyShape.RigidShapeBox,
             Dimemsions = new Vector3(
                 segment.HalfWidth, segment.Length * 0.46f, segment.HalfThickness),
@@ -402,8 +555,8 @@ internal static class PMXSkirtPhysicsExporter
             PMXPhysicsExporter.SkirtPreset.TwistSpring, PMXPhysicsExporter.SkirtPreset.TwistSpring * 0.5f, depthRatio);
         return new MMDJoint
         {
-            Name = segment.Bone.name + "_skirt_vertical_joint",
-            NameEn = segment.Bone.name + "_skirt_vertical_joint",
+            Name = segment.BoneName + "_skirt_vertical_joint",
+            NameEn = segment.BoneName + "_skirt_vertical_joint",
             AssociatedRigidBodyIndex = new[] { parentRigidIndex, segment.RigidIndex },
             Position = segment.Start,
             Rotation = segment.Rotation,
@@ -413,6 +566,28 @@ internal static class PMXSkirtPhysicsExporter
             RotationHiLimit = new Vector3(bend, twist, bend * 0.75f),
             SpringTranslate = Vector3.zero,
             SpringRotate = new Vector3(bendSpring, twistSpring, bendSpring)
+        };
+    }
+
+    private static MMDJoint CreateSkirtHorizontalJoint(SkirtSegment left, SkirtSegment right)
+    {
+        Vector3 direction = right.Center - left.Center;
+        if (direction.sqrMagnitude < 0.000001f) direction = Vector3.right;
+        Vector3 rotation = CalculatePanelRotation(direction, right.End - right.Start);
+        float bend = 10f * Mathf.Deg2Rad;
+        return new MMDJoint
+        {
+            Name = left.BoneName + "_to_" + right.BoneName + "_skirt_horizontal_joint",
+            NameEn = left.BoneName + "_to_" + right.BoneName + "_skirt_horizontal_joint",
+            AssociatedRigidBodyIndex = new[] { left.RigidIndex, right.RigidIndex },
+            Position = (left.Center + right.Center) * 0.5f,
+            Rotation = rotation,
+            PositionLowLimit = Vector3.zero,
+            PositionHiLimit = Vector3.zero,
+            RotationLowLimit = new Vector3(-bend, -bend * 0.5f, -bend),
+            RotationHiLimit = new Vector3(bend, bend * 0.5f, bend),
+            SpringTranslate = Vector3.zero,
+            SpringRotate = new Vector3(8f, 3f, 8f)
         };
     }
 
@@ -440,6 +615,64 @@ internal static class PMXSkirtPhysicsExporter
         if (checkRight) AddLegColliderChain(
             "right", controller.KneeRBone, controller.AnkleRBone, thighRadius, shinRadius,
             coordinateRoot, boneIndexes, rigidBodies);
+    }
+
+    private static MMDRigidBody CreateSkirtAnchorBodyFromLayout(PMXSkirtLayoutExporter.Column column, Vector3 rotation)
+    {
+        string name = column.ColumnId + "_skirt_anchor";
+        return new MMDRigidBody
+        {
+            Name = name, NameEn = name, AssociatedBoneIndex = column.AnchorBoneIndex,
+            CollisionGroup = PMXPhysicsExporter.SkirtCollisionGroup,
+            CollisionMask = PMXPhysicsExporter.CreateCollisionMaskAllowingAllExceptGroups(PMXPhysicsExporter.SkirtLegCollisionGroup),
+            Shape = MMDRigidBody.RigidBodyShape.RigidShapeSphere,
+            Dimemsions = new Vector3(Mathf.Max(PMXPhysicsExporter.MinimumRadius, column.AnchorRadius * 0.5f), 0, 0),
+            Position = column.AnchorPosition, Rotation = rotation, Mass = 0,
+            TranslateDamp = 1, RotateDamp = 1, Restitution = 0, Friction = 0,
+            Type = MMDRigidBody.RigidBodyType.RigidTypeKinematic
+        };
+    }
+
+    private static void AddSkirtLegCollidersEnhanced(SkirtController controller,
+        IEnumerable<PMXPhysicsExporter.SkirtColumn> columns, Transform coordinateRoot,
+        Dictionary<Transform, int> boneIndexes, List<MMDRigidBody> rigidBodies,
+        PMXMeshExportContext mesh)
+    {
+        AddPelvisColliderEnhanced(controller, coordinateRoot, boneIndexes, rigidBodies, mesh);
+        bool checkLeft = columns.Any(column => column.IsCheckLeftLeg);
+        bool checkRight = columns.Any(column => column.IsCheckRightLeg);
+        float thighRadius = SanitizeSkirtColliderRadius(controller.KneeColliderRadius, DefaultThighColliderRadius);
+        float shinRadius = SanitizeSkirtColliderRadius(controller.AnkleColliderRadius, DefaultShinColliderRadius);
+        if (checkLeft) AddLegColliderChainEnhanced("left", controller.KneeLBone, controller.AnkleLBone,
+            thighRadius, shinRadius, coordinateRoot, boneIndexes, rigidBodies, mesh);
+        if (checkRight) AddLegColliderChainEnhanced("right", controller.KneeRBone, controller.AnkleRBone,
+            thighRadius, shinRadius, coordinateRoot, boneIndexes, rigidBodies, mesh);
+    }
+
+    private static void AddLegColliderChainEnhanced(string side, Transform knee, Transform ankle,
+        float thighRadius, float shinRadius, Transform coordinateRoot,
+        Dictionary<Transform, int> boneIndexes, List<MMDRigidBody> rigidBodies,
+        PMXMeshExportContext mesh)
+    {
+        if (knee == null || !boneIndexes.ContainsKey(knee)) return;
+        Transform thigh = PMXPhysicsExporter.FindNearestExportedParentTransform(knee.parent, boneIndexes);
+        if (thigh != null) AddKinematicCapsuleEnhanced(side + "_thigh_skirt_collider", thigh, knee,
+            thighRadius, coordinateRoot, boneIndexes, rigidBodies, mesh);
+        if (ankle != null && boneIndexes.ContainsKey(ankle)) AddKinematicCapsuleEnhanced(
+            side + "_shin_skirt_collider", knee, ankle, shinRadius, coordinateRoot, boneIndexes, rigidBodies, mesh);
+    }
+
+    private static void AddKinematicCapsuleEnhanced(string name, Transform startBone, Transform endBone,
+        float fallbackRadius, Transform coordinateRoot, Dictionary<Transform, int> boneIndexes,
+        List<MMDRigidBody> rigidBodies, PMXMeshExportContext mesh)
+    {
+        float radius = fallbackRadius;
+        float axisLength = Vector3.Distance(coordinateRoot.InverseTransformPoint(startBone.position),
+            coordinateRoot.InverseTransformPoint(endBone.position));
+        if (PMXCollisionMeshFitter.TryFitCapsuleRadius(mesh, coordinateRoot, startBone, endBone, out float fitted))
+            radius = SanitizeFittedRadius(fitted, axisLength, fallbackRadius);
+        else Debug.LogWarning("PMX 裙摆碰撞体拟合回退，沿用原半径：" + name);
+        AddKinematicCapsule(name, startBone, endBone, radius, coordinateRoot, boneIndexes, rigidBodies);
     }
 
     /// <summary>
@@ -497,8 +730,7 @@ internal static class PMXSkirtPhysicsExporter
             NameEn = "pelvis_skirt_collider",
             AssociatedBoneIndex = boneIndex,
             CollisionGroup = PMXPhysicsExporter.SkirtLegCollisionGroup,
-            CollisionMask = PMXPhysicsExporter.CreateCollisionMaskOnlyCollideWith(
-                PMXPhysicsExporter.SkirtCollisionGroup),
+            CollisionMask = PMXPhysicsExporter.CreateCollisionMaskAllowingAllExceptGroups(),
             Shape = MMDRigidBody.RigidBodyShape.RigidShapeSphere,
             Dimemsions = new Vector3(pelvisRadius, 0, 0),
             Position = position,
@@ -510,6 +742,53 @@ internal static class PMXSkirtPhysicsExporter
             Friction = 0.5f,
             Type = MMDRigidBody.RigidBodyType.RigidTypeKinematic
         });
+    }
+
+    private static void AddPelvisColliderEnhanced(SkirtController controller, Transform coordinateRoot,
+        Dictionary<Transform, int> boneIndexes, List<MMDRigidBody> rigidBodies, PMXMeshExportContext mesh)
+    {
+        Transform pelvis = controller.CenterBone;
+        if (pelvis == null) pelvis = controller.KneeLBone != null ? controller.KneeLBone.parent?.parent : controller.KneeRBone?.parent?.parent;
+        Transform exported = PMXPhysicsExporter.FindNearestExportedParentTransform(pelvis, boneIndexes);
+        if (exported == null || !boneIndexes.TryGetValue(exported, out int boneIndex)) return;
+        Transform left = controller.KneeLBone == null ? null : PMXPhysicsExporter.FindNearestExportedParentTransform(controller.KneeLBone.parent, boneIndexes);
+        Transform right = controller.KneeRBone == null ? null : PMXPhysicsExporter.FindNearestExportedParentTransform(controller.KneeRBone.parent, boneIndexes);
+        Vector3 center = exported.position;
+        float radius = DefaultPelvisColliderRadius;
+        if (left != null && right != null)
+        {
+            float span = Vector3.Distance(left.position, right.position);
+            center = (left.position + right.position) * 0.5f + Vector3.up * (span * 0.15f);
+            radius = Mathf.Clamp(span * 0.32f, 0.035f, 0.048f);
+            Vector3 centerInRoot = coordinateRoot.InverseTransformPoint(center);
+            if (PMXCollisionMeshFitter.TryFitPelvisRadiusAt(mesh, coordinateRoot, centerInRoot, exported, left, right, out float fitted))
+                radius = SanitizePelvisFittedRadius(fitted, Vector3.Distance(
+                    coordinateRoot.InverseTransformPoint(left.position), coordinateRoot.InverseTransformPoint(right.position)), radius);
+            else Debug.LogWarning("PMX 裙摆骨盆碰撞体拟合回退，沿用原半径。");
+        }
+        rigidBodies.Add(new MMDRigidBody
+        {
+            Name = "pelvis_skirt_collider", NameEn = "pelvis_skirt_collider", AssociatedBoneIndex = boneIndex,
+            CollisionGroup = PMXPhysicsExporter.SkirtLegCollisionGroup,
+            CollisionMask = PMXPhysicsExporter.CreateCollisionMaskAllowingAllExceptGroups(),
+            Shape = MMDRigidBody.RigidBodyShape.RigidShapeSphere, Dimemsions = new Vector3(radius, 0, 0),
+            Position = coordinateRoot.InverseTransformPoint(center),
+            Rotation = PMXPhysicsExporter.ConvertUnityRotationToWriterEuler(Quaternion.Inverse(coordinateRoot.rotation) * exported.rotation),
+            Mass = 0, TranslateDamp = 1, RotateDamp = 1, Restitution = 0, Friction = 0.5f,
+            Type = MMDRigidBody.RigidBodyType.RigidTypeKinematic
+        });
+    }
+
+    private static float SanitizeFittedRadius(float fitted, float axisLength, float fallback)
+    {
+        if (float.IsNaN(fitted) || float.IsInfinity(fitted) || fitted <= 0) return fallback;
+        return Mathf.Clamp(fitted, 0.005f, Mathf.Max(0.005f, axisLength * 0.48f));
+    }
+
+    private static float SanitizePelvisFittedRadius(float fitted, float hipSpan, float fallback)
+    {
+        if (float.IsNaN(fitted) || float.IsInfinity(fitted) || fitted <= 0) return fallback;
+        return Mathf.Clamp(fitted, Mathf.Max(0.005f, hipSpan * 0.12f), Mathf.Max(0.01f, hipSpan * 0.8f));
     }
 
     private static void AddLegColliderChain(string side, Transform knee, Transform ankle,
@@ -548,8 +827,7 @@ internal static class PMXSkirtPhysicsExporter
             NameEn = name,
             AssociatedBoneIndex = boneIndex,
             CollisionGroup = PMXPhysicsExporter.SkirtLegCollisionGroup,
-            CollisionMask = PMXPhysicsExporter.CreateCollisionMaskOnlyCollideWith(
-                PMXPhysicsExporter.SkirtCollisionGroup),
+            CollisionMask = PMXPhysicsExporter.CreateCollisionMaskAllowingAllExceptGroups(),
             Shape = MMDRigidBody.RigidBodyShape.RigidShapeCapsule,
             Dimemsions = new Vector3(radius, PMXPhysicsExporter.GetCapsuleCylinderLength(length, radius), 0),
             Position = (start + end) * 0.5f,

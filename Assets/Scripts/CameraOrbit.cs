@@ -1,10 +1,26 @@
-﻿using TMPro;
+using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
 
 public class CameraOrbit : MonoBehaviour
 {
-    public static CameraOrbit instance;
+    private static CameraOrbit _instance;
+    /// <summary>
+    /// 全局主相机轨道控制器单例。支持热重载自愈。
+    /// </summary>
+    public static CameraOrbit instance
+    {
+        get
+        {
+            if (_instance == null)
+            {
+                _instance = FindObjectOfType<CameraOrbit>();
+            }
+            return _instance;
+        }
+        set => _instance = value;
+    }
+
     public int CameraMode = 0;
 
     [Header("Light")]
@@ -26,20 +42,37 @@ public class CameraOrbit : MonoBehaviour
     bool FreeCamRight = false;
     private Quaternion lookRotation;
 
-    private UISettingsCamera CameraSettings => UmaViewerUI.Instance.CameraSettings;
+    private UISettingsCamera CameraSettings => UmaViewerUI.Instance != null ? UmaViewerUI.Instance.CameraSettings : null;
+
+    void Awake()
+    {
+        _instance = this;
+    }
 
     void Start()
     {
-        CameraSettings.CameraDistance.minValue = camDistMin;
-        CameraSettings.CameraDistance.maxValue = camDistMax;
+        if (CameraSettings != null && CameraSettings.CameraDistance != null)
+        {
+            CameraSettings.CameraDistance.minValue = camDistMin;
+            CameraSettings.CameraDistance.maxValue = camDistMax;
+        }
 
         lookRotation = transform.localRotation;
-        instance = this;
+    }
+
+    void OnDestroy()
+    {
+        if (_instance == this)
+        {
+            _instance = null;
+        }
     }
 
     void Update()
     {
         if (HandleManager.InteractionInProgress) return;
+        // 防御性跳过：当 UI 设置尚未初始化或在非主界面场景中，不执行依赖 UI 的逻辑
+        if (CameraSettings == null) return;
 
         bool cameraModeChanged = CameraMode != CameraSettings.CameraMode;
         if (cameraModeChanged)

@@ -6,7 +6,22 @@ using UnityEngine.UI;
 
 public class LiveViewerUI : MonoBehaviour
 {
-    public static LiveViewerUI Instance;
+    private static LiveViewerUI _instance;
+    /// <summary>
+    /// Live 界面单例。支持在域重载后自动从场景找回活跃实例自愈。
+    /// </summary>
+    public static LiveViewerUI Instance
+    {
+        get
+        {
+            if (_instance == null)
+            {
+                _instance = FindObjectOfType<LiveViewerUI>();
+            }
+            return _instance;
+        }
+        set => _instance = value;
+    }
 
     public UnityEngine.UI.Slider ProgressBar;
 
@@ -36,8 +51,16 @@ public class LiveViewerUI : MonoBehaviour
         height = BottonUITransform.rect.height;
         targetHeight = 0;
         Invoke(nameof(HideSlider), 1.5f);
-        Instance = this;
+        _instance = this;
         //TrueProgressBar = (UnityEngine.UIElements.Slider)ProgressBar;
+    }
+
+    private void OnDestroy()
+    {
+        if (_instance == this)
+        {
+            _instance = null;
+        }
     }
 
     public void OnMouse(bool isEnter)

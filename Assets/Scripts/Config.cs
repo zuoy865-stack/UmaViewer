@@ -1,4 +1,4 @@
-﻿using Newtonsoft.Json;
+using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -8,7 +8,22 @@ using UnityEngine;
 public class Config
 {
     public static string configPath = GetConfigPath();
-    public static Config Instance;
+    private static Config _instance;
+    /// <summary>
+    /// 全局配置单例。在域重载后若为空会自动触发 new Config() 反序列化重建。
+    /// </summary>
+    public static Config Instance
+    {
+        get
+        {
+            if (_instance == null)
+            {
+                new Config();
+            }
+            return _instance;
+        }
+        set => _instance = value;
+    }
     public string Version = "";
 
     public string DBBaseKeyTip = "Base key to read game database files";
@@ -158,7 +173,7 @@ public class Config
             WorkMode = WorkMode.Standalone;
             DownloadMissingResources = true;
             MainPath = Application.persistentDataPath;
-            Instance = this;
+            _instance = this;
             return;
         }
 
@@ -221,7 +236,7 @@ public class Config
                 MainPath = $@"{Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) + "Low"}\Cygames\umamusume";
             }
         }
-        Instance = this;
+        _instance = this;
     }
 
     public void UpdateConfig(bool requireRestart)

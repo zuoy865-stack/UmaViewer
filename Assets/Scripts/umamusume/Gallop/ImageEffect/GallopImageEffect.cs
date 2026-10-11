@@ -1,4 +1,5 @@
 using Gallop.ImageEffect;
+using Gallop.RenderPipeline;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
@@ -30,6 +31,11 @@ namespace Gallop
             }
         }
 
+        /// <summary>
+        /// 第二步隔离测试调试开关：控制是否临时全局禁用 URP Bloom / Diffusion 泛光，排查是否导致天空压白与荧光绿
+        /// </summary>
+        public static bool DisableBloomForDebug = false;
+
         private void Awake()
         {
             InitializeVolume();
@@ -48,9 +54,13 @@ namespace Gallop
             if (_volume == null)
                 _volume = gameObject.AddComponent<Volume>();
 
-            _volume.isGlobal = false;
+            // 将 Volume 设置为全局生效 (isGlobal = true)。
+            // 在 URP 管线下，若 isGlobal 为 false，Volume 必须依赖 Collider 触发器且需要相机进入其碰撞范围才能生效。
+            // 马娘演出中机位频繁切换或挂载在没有碰撞体的对象上时，局部 Volume 会导致后处理被管线直接忽略。
+            // 全局化后，全屏任意机位均能全局执行后处理，并通过高优先级 (100f) 与完全权重 (1f) 保证后处理效果正确覆盖。
+            _volume.isGlobal = true;
             _volume.priority = 100f;
-            _volume.weight = 1f;
+            _volume.weight = DisableBloomForDebug ? 0f : 1f;
 
             if (_volume.sharedProfile != null)
                 _runtimeProfile =
@@ -66,8 +76,15 @@ namespace Gallop
 
             if (!_runtimeProfile.TryGet(out _bloom))
                 _bloom = _runtimeProfile.Add<Bloom>(true);
+
+            EnsureCameraPostProcess();
+            PostImageEffectFeature.EnsureHooked();
         }
 
+        /// <summary>
+        /// 把时间轴 Bloom/Diffusion 写进 URP Volume Bloom。
+        /// 强度、阈值、提取亮度都走 DofDiffusionBloomOverlayParam 的有界映射，避免天空洗白。
+        /// </summary>
         public void ApplyBloomParameter()
         {
             if (_bloom == null)
@@ -76,28 +93,64 @@ namespace Gallop
             if (_bloom == null)
                 return;
 
+            if (DisableBloomForDebug)
+            {
+                _bloom.active = false;
+                if (_volume != null) _volume.weight = 0f;
+                return;
+            }
+
             var param = _dofDiffusionBloomOverlayParam;
+            if (param == null)
+                return;
 
-            bool enabled =
-                param.IsEnableBloom &&
-                param.BloomIntensity > 0f;
+            DofDiffusionBloomOverlayParam.UrpBloomMapping mapping =
+                param.ResolveUrpBloom();
 
-            _bloom.active = enabled;
+            if (_volume != null)
+                _volume.weight = mapping.Active ? 1f : 0f;
 
-            _bloom.threshold.overrideState = true;
-            _bloom.intensity.overrideState = true;
-            _bloom.scatter.overrideState = true;
+            _bloom.active = mapping.Active;
+            _bloom.intensity.Override(mapping.Intensity);
+            _bloom.threshold.Override(mapping.Threshold);
+            _bloom.scatter.Override(mapping.Scatter);
+            _bloom.clamp.Override(mapping.ExtractClamp);
+            _bloom.highQualityFiltering.Override(false);
+        }
 
-            _bloom.threshold.value = Mathf.Max(0f, param.BloomThreshold);
+        /// <summary>
+        /// 接收时间轴 HDR 泛光事件更新并驱动 URP Volume
+        /// </summary>
+        public void UpdateHdrBloom(bool enable, float intensity, float blurSpread)
+        {
+            if (_dofDiffusionBloomOverlayParam != null)
+            {
+                _dofDiffusionBloomOverlayParam.IsEnableHdrBloom = enable;
+                _dofDiffusionBloomOverlayParam.HdrBloomIntensity = intensity;
+                _dofDiffusionBloomOverlayParam.HdrBloomBlurSpread = blurSpread;
+                ApplyBloomParameter();
+            }
+        }
 
-            _bloom.intensity.value = Mathf.Max(0f, param.BloomIntensity);
+        /// <summary>
+        /// Live 预制体相机默认关着 URP 后处理。没有这一步，Volume Bloom 不会进画面。
+        /// </summary>
+        public void EnsureCameraPostProcess()
+        {
+            EnsureCameraPostProcess(GetComponent<Camera>());
+        }
 
-            /*
-             * 官方 BloomBlurSize 范围 0~10。
-             * URP scatter 范围通常是 0~1。
-             * 这是渲染后端适配，不是 Timeline 算法改动。
-             */
-            _bloom.scatter.value = Mathf.Clamp01(param.BloomBlurSize / 10f);
+        public void EnsureCameraPostProcess(Camera camera)
+        {
+            if (camera == null)
+                return;
+
+            camera.allowHDR = true;
+
+            UniversalAdditionalCameraData cameraData =
+                camera.GetUniversalAdditionalCameraData();
+            if (cameraData != null)
+                cameraData.renderPostProcessing = true;
         }
     }
 }

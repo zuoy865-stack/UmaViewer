@@ -13,7 +13,23 @@ public class UmaViewerMain : MonoBehaviour
     private const string EnglishNamesCacheMagic = "UmaViewerEnglishNames";
     private const int EnglishNamesCacheVersion = 1;
 
-    public static UmaViewerMain Instance;
+    private static UmaViewerMain _instance;
+    /// <summary>
+    /// 全局主管理器单例。支持在 Unity 域重载后静态数据丢失时自动从场景找回活跃实例自愈。
+    /// </summary>
+    public static UmaViewerMain Instance
+    {
+        get
+        {
+            if (_instance == null)
+            {
+                _instance = FindObjectOfType<UmaViewerMain>();
+            }
+            return _instance;
+        }
+        set => _instance = value;
+    }
+
     public static bool WasEscapeConsumedThisFrame { get; private set; }
     private UmaViewerUI UI => UmaViewerUI.Instance;
     private UmaViewerBuilder Builder => UmaViewerBuilder.Instance;
@@ -32,7 +48,9 @@ public class UmaViewerMain : MonoBehaviour
 
     private void Awake()
     {
-        Instance = this;
+        _instance = this;
+        // 初始化统一错误管理器的主线程上下文
+        UmaErrorManager.InitializeOnMainThread();
         new Config();
         ApplyFrameRateLimit();
 
@@ -45,6 +63,14 @@ public class UmaViewerMain : MonoBehaviour
         AbSounds = AbList.Where(ab => ab.Value.Type == UmaFileType.sound).Select(ab => ab.Value).ToList();
         var outgame = AbList.Where(ab => ab.Value.Type == UmaFileType.outgame).Select(ab => ab.Value).ToList();
         CostumeList = outgame.FindAll(e => e.Name.StartsWith(UmaDatabaseController.CostumePath));
+    }
+
+    private void OnDestroy()
+    {
+        if (_instance == this)
+        {
+            _instance = null;
+        }
     }
 
     public static void ApplyFrameRateLimit()

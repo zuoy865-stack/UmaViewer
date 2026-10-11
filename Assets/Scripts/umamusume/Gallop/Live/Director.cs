@@ -1,4 +1,4 @@
-﻿using Gallop.Live.Cutt;
+using Gallop.Live.Cutt;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -8,7 +8,7 @@ using Gallop.ImageEffect;
 
 namespace Gallop.Live
 {
-    public class Director : MonoBehaviour
+    public partial class Director : MonoBehaviour
     {
         private static Director _instance = null;
         public LiveTimelineControl _liveTimelineControl; //Edited to public
@@ -24,12 +24,6 @@ namespace Gallop.Live
         private CameraLookAt _cameraLookAt;
         private int _activeCameraIndex  = 1;
         private readonly int[] kTimelineCameraIndices = new int[3] { 1, 2, 3 };
-        [SerializeField] private bool _enableMirrorReflection = true;
-        [SerializeField] private List<MirrorReflection> _mirrorReflections = new List<MirrorReflection>();
-        [SerializeField] private bool _mirrorRenderInLateUpdate = true;
-
-        [SerializeField]
-        private GallopImageEffect _mainGallopImageEffect;
 
         public static Director instance => _instance;
 
@@ -76,7 +70,24 @@ namespace Gallop.Live
 
         public Transform MainCameraTransform => _mainCameraTransform;
 
+        /// <summary>
+        /// 当前激活的 Live 主相机对象引用
+        /// </summary>
+        public Camera CurrentMainCamera
+        {
+            get
+            {
+                if (_cameraObjects != null && _activeCameraIndex >= 0 && _activeCameraIndex < _cameraObjects.Length)
+                {
+                    return _cameraObjects[_activeCameraIndex];
+                }
+                return Camera.main;
+            }
+        }
+
         private Transform _mainCameraTransform;
+
+        // 角色色与全局光的 MaterialPropertyBlock 缓存在 Director.CharaColor.cs 中按 renderer 叠加维护。
 
         private static readonly Dictionary<string, UmaDatabaseEntry> _laserBundleCache
             = new Dictionary<string, UmaDatabaseEntry>();
@@ -219,82 +230,28 @@ namespace Gallop.Live
 
             _liveTimelineControl.OnUpdateFacial += delegate (FacialDataUpdateInfo updateInfo_, float liveTime_, int position)
             {
-                if (position < charaObjs.Count)
+                // 加固边界防御与有效容器断言，彻底杜绝高序号空槽位越界和空指针报错
+                if (position >= 0 && position < CharaContainerScript.Count && CharaContainerScript[position] != null)
                 {
                     var container = CharaContainerScript[position];
-                    container.FaceDrivenKeyTarget.AlterUpdateFacialNew(ref updateInfo_, liveTime_);
-                }
-            };
-
-            _liveTimelineControl.OnUpdateGlobalLight += delegate (ref GlobalLightUpdateInfo updateInfo)
-            {
-                var tmpPos = -(updateInfo.lightRotation * Vector3.forward).normalized;
-                foreach (var locator in _liveTimelineControl.liveCharactorLocators)
-                {
-                    if (locator != null && updateInfo.flags.hasFlag(locator.liveCharaStandingPosition) && locator is LiveTimelineCharaLocator charaLocator)
+                    if (container.FaceDrivenKeyTarget != null)
                     {
-                        var container = charaLocator.UmaContainer;
-                        if (container)
-                        {
-                            MaterialPropertyBlock propertyBlock = new MaterialPropertyBlock();
-                            propertyBlock.SetFloat("_RimShadowRate", updateInfo.globalRimShadowRate);
-                            propertyBlock.SetColor("_RimColor", updateInfo.rimColor);
-                            propertyBlock.SetFloat("_RimStep", updateInfo.rimStep);
-                            propertyBlock.SetFloat("_RimFeather", updateInfo.rimFeather);
-                            propertyBlock.SetFloat("_RimSpecRate", updateInfo.rimSpecRate);
-                            propertyBlock.SetFloat("_RimHorizonOffset", updateInfo.RimHorizonOffset);
-                            propertyBlock.SetFloat("_RimVerticalOffset", updateInfo.RimVerticalOffset);
-                            propertyBlock.SetFloat("_RimHorizonOffset2", updateInfo.RimHorizonOffset2);
-                            propertyBlock.SetFloat("_RimVerticalOffset2", updateInfo.RimVerticalOffset2);
-                            propertyBlock.SetColor("_RimColor2", updateInfo.rimColor2);
-                            propertyBlock.SetFloat("_RimStep2", updateInfo.rimStep2);
-                            propertyBlock.SetFloat("_RimFeather2", updateInfo.rimFeather2);
-                            propertyBlock.SetFloat("_RimSpecRate2", updateInfo.rimSpecRate2);
-                            propertyBlock.SetFloat("_RimShadowRate2", updateInfo.globalRimShadowRate2);
-                            foreach (var renderer in container.Renderers)
-                            {
-                                renderer.SetPropertyBlock(propertyBlock);
-                                foreach(var mat in renderer.materials)
-                                {
-                                    mat.SetFloat("_UseOriginalDirectionalLight", 1);
-                                    mat.SetVector("_OriginalDirectionalLightDir", tmpPos);
-                                }
-                            }
-                        }
+                        container.FaceDrivenKeyTarget.AlterUpdateFacialNew(ref updateInfo_, liveTime_);
                     }
                 }
             };
 
-            _liveTimelineControl.OnUpdateBgColor1 += delegate (ref BgColor1UpdateInfo updateInfo)
-            {
-                foreach (var locator in _liveTimelineControl.liveCharactorLocators)
-                {
-                    var EFlags = (LiveCharaPositionFlag)updateInfo.flags;
-                    if (locator != null && (updateInfo.flags == 0 || EFlags.hasFlag(locator.liveCharaStandingPosition)) && locator is LiveTimelineCharaLocator charaLocator)
-                    {
-                        var container = charaLocator.UmaContainer;
-                        if (container)
-                        {
-                            MaterialPropertyBlock propertyBlock = new MaterialPropertyBlock();
-                            propertyBlock.SetColor("_CharaColor", updateInfo.color);
-                            propertyBlock.SetColor("_ToonDarkColor", updateInfo.toonDarkColor);
-                            propertyBlock.SetColor("_ToonBrightColor", updateInfo.toonBrightColor);
-                            propertyBlock.SetColor("_OutlineColor", updateInfo.outlineColor);
-                            propertyBlock.SetFloat("_Saturation", updateInfo.Saturation);
-                            foreach (var renderer in container.Renderers)
-                            {
-                                renderer.SetPropertyBlock(propertyBlock);
-                            }
-                        }
-                    }
-                }
-            };
+            _liveTimelineControl.OnUpdateGlobalLight += OnUpdateGlobalLight;
+            _liveTimelineControl.OnUpdateBgColor1 += OnUpdateBgColor1;
 
             SetupCharacterLocator();
+            // 在参演马娘组装与定位器就绪后，初始化全局手持道具装配
+            InitializeLiveProps();
             InitializeCamera();
             InitializeMirrorReflections();
             UpdateMainCamera();
             InitializeMultiCamera(_liveTimelineControl);
+            InitializeMonitorCamera(_liveTimelineControl);
             for (int i = 0; i < kTimelineCameraIndices.Length; i++)
             {
                 int num = kTimelineCameraIndices[i];
@@ -304,6 +261,7 @@ namespace Gallop.Live
                 }
             }
             _liveTimelineControl.OnUpdatePostEffect_BloomDiffusion += OnUpdatePostEffect_BloomDiffusion;
+            _liveTimelineControl.OnUpdateHdrBloom += OnUpdateHdrBloom;
 
 
             _liveTimelineControl.OnUpdateCameraSwitcher += delegate (int cameraIndex_)
@@ -341,24 +299,8 @@ namespace Gallop.Live
             }
         }
 
-        public void InitializeMultiCamera(LiveTimelineControl control)
-        {
-            var cameraCount = control.data.multiCameraSettings.cameraNum;
-            MultiCamera[] cameras = new MultiCamera[cameraCount];
-            var root = new GameObject("MultiCameras");
-            root.transform.SetParent(control.transform);
-            for (int i = 0; i < cameraCount; i++)
-            {
-                var camObj = new GameObject($"MultiCamera_{i}");
-                camObj.transform.SetParent(root.transform);
+        // InitializeMultiCamera 已迁移至 Director.MultiCamera.cs 分部类实现增强版本
 
-                var cam = camObj.AddComponent<MultiCamera>();
-                cam.Initialize();
-                cameras[i] = cam;
-                control.MultiRecordFrames.Add(new List<LiveCameraFrame>());
-            }
-            control.SetMultiCamera(cameras);
-        }
 
         private void UpdateMainCamera()
         {
@@ -379,13 +321,23 @@ namespace Gallop.Live
         private void SetupCharacterLocator()
         {
             if (!_liveTimelineControl) return;
-            for (int i = 0; i < CharaContainerScript.Count; i++)
+            int count = Mathf.Min(CharaContainerScript.Count, 20);
+            for (int i = 0; i < count; i++)
             {
                 var container = CharaContainerScript[i];
-                container.LiveLocator = new LiveTimelineCharaLocator(container);
+                if (container == null) continue;
+
+                if (container.LiveLocator == null)
+                {
+                    container.LiveLocator = new LiveTimelineCharaLocator(container);
+                }
                 container.LiveLocator.liveCharaStandingPosition = (LiveCharaPosition)i;
-                _liveTimelineControl.liveCharactorLocators[i] = container.LiveLocator;
-                container.LiveLocator.liveCharaInitialPosition = container.transform.position;
+                _liveTimelineControl.SetCharactorLocator(i, container.LiveLocator);
+            }
+
+            for (int i = count; i < 20; i++)
+            {
+                _liveTimelineControl.SetCharactorLocator(i, null);
             }
         }
 
@@ -422,6 +374,14 @@ namespace Gallop.Live
 
 
             liveMusic = UmaViewerAudio.ApplySound(string.Format(SONG_PATH, songid), -1);
+
+            // 伴奏音轨缺失检测：当伴奏音轨未下载或列表为空时，通过全局弹窗告知用户，杜绝静默无声播放
+            if (liveMusic == null || liveMusic.sourceList == null || liveMusic.sourceList.Count == 0)
+            {
+                UmaErrorManager.ShowUIMessage(
+                    string.Format("未找到伴奏音轨（MusicId: {0}），请检查伴奏资源或网络下载。", live != null ? live.MusicId : songid),
+                    UIMessageType.Error);
+            }
         }
 
         public void Play()
@@ -458,7 +418,9 @@ namespace Gallop.Live
             _liveTimelineControl.AlterUpdate(_liveCurrentTime);
             if (!_soloMode)
             {
+                LiveFrameProfiler.Begin(LiveFrameProfiler.AudioVocal);
                 UmaViewerAudio.AlterUpdate(_liveCurrentTime, partInfo, liveVocal, sliderControl.is_Outed);
+                LiveFrameProfiler.End(LiveFrameProfiler.AudioVocal);
             }
         }
 
@@ -478,6 +440,8 @@ namespace Gallop.Live
 
             if (_isLiveSetup)
             {
+                LiveFrameProfiler.BeginFrame();
+
                 _lateTimelineAppliedThisFrame = false;
 
                 if ((!UmaViewerMain.TryConsumeEscapeForFullScreen() && Input.GetKeyDown(KeyCode.Escape)) || _liveCurrentTime >= totalTime)
@@ -487,11 +451,12 @@ namespace Gallop.Live
 
                 if (_syncTime == false)
                 {
-                    if(liveMusic.sourceList.Count == 0)
+                    // 伴奏列表判空保护，杜绝 NullReferenceException
+                    if (liveMusic == null || liveMusic.sourceList == null || liveMusic.sourceList.Count == 0)
                     {
                         _syncTime = true;
                     }
-                    else if (liveMusic.sourceList[0].time > 0.01)
+                    else if (liveMusic.sourceList[0] != null && liveMusic.sourceList[0].time > 0.01f)
                     {
                         _liveCurrentTime = UI.ProgressBar.value * totalTime;
                         _liveCurrentTime = Mathf.Clamp(_liveCurrentTime, 0f, Mathf.Max(0f, totalTime - 0.001f));
@@ -575,7 +540,13 @@ namespace Gallop.Live
                 // 时间轴和主相机都更新完后再同步 Laser Renderer/朝向。
                 // 这样既不会读取上一帧 LaserUpdateInfo，也不会读取上一帧相机姿态。
                 if (_stageController != null)
+                {
+                    LiveFrameProfiler.Begin(LiveFrameProfiler.StageController);
                     _stageController.AlterUpdateLaserControllers();
+                    LiveFrameProfiler.End(LiveFrameProfiler.StageController);
+                }
+
+                LiveFrameProfiler.EndFrame();
             }
         }
 
@@ -590,96 +561,14 @@ namespace Gallop.Live
             {
                 UpdateMirrorReflections();
             }
+
+            // 驱动 URP 兼容的多机位全屏分屏呈现层更新
+            UpdateMultiCameraDisplay();
         }
 
         private void FixedUpdate()
         {
             LiveViewerUI.Instance.UpdateLyrics(_liveCurrentTime);
-        }
-
-        DateTime ExitTime;
-        private void ExitLive()
-        {
-            isExit = true;
-            if (_liveTimelineControl.IsRecordVMD)
-            {
-                ExitTime = DateTime.Now;
-                SaveCameraVMD();
-                SaveMultiCameraVMD();
-                SaveCharacterVMD();
-            }
-            UmaSceneController.LoadScene(
-                "Version2",
-                null,
-                delegate
-                {
-                    // 等旧 LiveScene 完全销毁后再清理，避免过场期间角色/舞台对象失去资源。
-                    UmaAssetManager.UnloadAllBundle(true);
-                });
-        }
-
-        private void SaveCharacterVMD()
-        {
-            foreach (var container in CharaContainerScript)
-            {
-                var rootbone = container.transform.Find("Position");
-                if (rootbone.gameObject.TryGetComponent(out UnityHumanoidVMDRecorder recorder))
-                {
-                    if (recorder.IsRecording)
-                    {
-                        recorder.StopRecording();
-                        recorder.SaveLiveVMD(live, ExitTime, $"Live{live.MusicId}_Pos{CharaContainerScript.IndexOf(container)}", Config.Instance.VmdKeyReductionLevel);
-                    }
-                }
-            }
-        }
-
-        private void SaveMultiCameraVMD()
-        {
-            for (int i = 0; i < _liveTimelineControl.data.worksheetList[0].multiCameraPosKeys.Count; i++)
-            {
-                var frames = _liveTimelineControl.MultiRecordFrames[i];
-                frames[0].FovVaild = true;
-                var fov = _liveTimelineControl.data.worksheetList[0].multiCameraPosKeys[i].keys.thisList;
-                fov.ForEach(k =>
-                {
-                    var keyframe = frames.Find(f => f.frameIndex == k.frame);
-                    if (keyframe != null)
-                    {
-                        var index = frames.IndexOf(keyframe);
-                        keyframe.FovVaild = true;
-                        if (index + 1 < frames.Count) frames[index + 1].FovVaild = true;
-                        if (index - 1 > 0) frames[index - 1].FovVaild = true;
-                        if (index - 2 > 0) frames[index - 2].FovVaild = true;
-                        if (index - 3 > 0) frames[index - 3].FovVaild = true;
-                    }
-                });
-
-                UnityCameraVMDRecorder.SaveLiveCameraVMD(live, ExitTime, frames, i);
-            }
-        }
-
-        private void SaveCameraVMD()
-        {
-            var frames = _liveTimelineControl.RecordFrames;
-            frames[0].FovVaild = true;
-            var fov = _liveTimelineControl.data.worksheetList[0].cameraFovKeys.thisList;
-            fov.ForEach(k =>
-            {
-
-                var keyframe = frames.Find(f => f.frameIndex == k.frame);
-                if (keyframe != null)
-                {
-                    var index = frames.IndexOf(keyframe);
-                    keyframe.FovVaild = true;
-                    if (index + 1 < frames.Count) frames[index + 1].FovVaild = true;
-                    if (index - 1 > 0) frames[index - 1].FovVaild = true;
-                    if (index - 2 > 0) frames[index - 2].FovVaild = true;
-                    if (index - 3 > 0) frames[index - 3].FovVaild = true;
-                }
-            });
-
-            UnityCameraVMDRecorder.SaveLiveCameraVMD(live, ExitTime, frames);
         }
 
         public static List<UmaDatabaseEntry> GetLiveAllVoiceEntry(int songid, List<LiveCharacterLoadData> characters)
@@ -743,29 +632,42 @@ namespace Gallop.Live
             // Cutt 和歌曲 part 也提前加载，避免进入场景后同步卡顿。
             AddByKey(string.Format(CUTT_PATH, live.MusicId));
             AddByKey(string.Format(LIVE_PART_PATH, live.MusicId));
+            AddByKey("livesettings");
 
-            if (requireStage && !string.IsNullOrEmpty(live.BackGroundId))
+            // 预加载当前 Live 所需的角色道具与道具动作资源
+            result.AddRange(CollectLivePropsEntries(live));
+
+            // 补全当前 Live 专属动作资源预载：
+            // 遍历 main.AbList，匹配收集 3d/motion/live/body/son{live.MusicId} 的所有动作包，
+            // 并同时支持收集 3d/motion/live/cutt/son{live.MusicId}（如果存在）。
+            // 确保进入 Live 场景前动作资源包已被全部加入预载列表，杜绝漏加载引发的角色 T-pose。
+            if (live.MusicId > 0)
             {
-                string folderPrefix = $"3d/env/live/live{live.BackGroundId}/";
+                string bodyMotionPrefix = $"3d/motion/live/body/son{live.MusicId}";
+                string cuttMotionPrefix = $"3d/motion/live/cutt/son{live.MusicId}";
 
-                // 保留该舞台目录下全部 AssetBundle，不删 laser、light、monitor 等任何资源。
                 foreach (var kv in main.AbList)
                 {
                     UmaDatabaseEntry entry = kv.Value;
                     if (entry == null || !entry.IsAssetBundle)
                         continue;
 
-                    bool keyMatches = kv.Key.StartsWith(
-                        folderPrefix,
-                        StringComparison.OrdinalIgnoreCase);
+                    // 检查资源 key 相对路径以及 entry.Name 是否匹配该歌曲的动作包前缀
+                    bool isBodyMotion = (kv.Key != null && kv.Key.StartsWith(bodyMotionPrefix, StringComparison.OrdinalIgnoreCase)) ||
+                                       (entry.Name != null && entry.Name.StartsWith(bodyMotionPrefix, StringComparison.OrdinalIgnoreCase));
+                    bool isCuttMotion = (kv.Key != null && kv.Key.StartsWith(cuttMotionPrefix, StringComparison.OrdinalIgnoreCase)) ||
+                                       (entry.Name != null && entry.Name.StartsWith(cuttMotionPrefix, StringComparison.OrdinalIgnoreCase));
 
-                    bool nameMatches = entry.Name != null && entry.Name.StartsWith(
-                        folderPrefix,
-                        StringComparison.OrdinalIgnoreCase);
-
-                    if (keyMatches || nameMatches)
+                    if (isBodyMotion || isCuttMotion)
+                    {
                         result.Add(entry);
+                    }
                 }
+            }
+
+            if (requireStage)
+            {
+                result.AddRange(CollectStageBundleEntries(live, requireStage));
             }
 
             return result
@@ -775,16 +677,88 @@ namespace Gallop.Live
                 .ToList();
         }
 
+        /// <summary>
+        /// 收集舞台所需的全部 AssetBundle 资源条目（涵盖专属预制体模型、sourceresources 下的材质贴图包、common 公共天空/荧光棒部件，以及歌曲专属 UVMovie 视频包）
+        /// </summary>
+        public static List<UmaDatabaseEntry> CollectStageBundleEntries(LiveEntry live, bool requireStage)
+        {
+            var result = new List<UmaDatabaseEntry>();
+            if (!requireStage || live == null)
+                return result;
+
+            // 若既没有背景舞台 ID 也没有有效歌曲 ID，则无需收集任何舞台或视频资源
+            if (string.IsNullOrEmpty(live.BackGroundId) && live.MusicId <= 0)
+                return result;
+
+            var main = UmaViewerMain.Instance;
+            if (main == null || main.AbList == null)
+                return result;
+
+            string bgId = live.BackGroundId;
+            bool hasBg = !string.IsNullOrEmpty(bgId);
+
+            // 1. 舞台专属资源路径前缀（模型、预制体、控制器等）
+            string folderPrefix = hasBg ? $"3d/env/live/live{bgId}/" : null;
+            // 2. 舞台专属材质/贴图资源前缀（确保 10147 等舞台天空网格材质 mtl_env_live10147_sky000~014 等全部被加载）
+            string sourcePrefix = hasBg ? $"sourceresources/3d/env/live/live{bgId}/" : null;
+            // 3. 舞台公共部件前缀（如公共天空球 pfb_env_live_cmn_sky002、公共荧光棒控制器等）
+            string commonPrefix = hasBg ? "3d/env/live/common/" : null;
+            // 3.1 舞台公共材质与贴图资源前缀（如公共天空材质 mtl_env_live_cmn_sky*、云层材质 sky_cloud 等）
+            string commonSourcePrefix = hasBg ? "sourceresources/3d/env/live/common/" : null;
+            // 4. 歌曲对应 UVMovie 视频资源前缀（如 1175 的 39 个 gal_uvmovie_1175_001 及分镜纹理包）
+            string uvMoviePrefix = live.MusicId > 0 ? $"live/uvmovie/gal_uvmovie_{live.MusicId}" : null;
+
+            foreach (var kv in main.AbList)
+            {
+                UmaDatabaseEntry entry = kv.Value;
+                if (entry == null || !entry.IsAssetBundle)
+                    continue;
+
+                // 分别检查 key（资源相对路径）和 entry.Name 是否匹配任一舞台、公共材质或 UVMovie 资源前缀
+                bool keyMatches = (folderPrefix != null && kv.Key.StartsWith(folderPrefix, StringComparison.OrdinalIgnoreCase)) ||
+                                  (sourcePrefix != null && kv.Key.StartsWith(sourcePrefix, StringComparison.OrdinalIgnoreCase)) ||
+                                  (commonPrefix != null && kv.Key.StartsWith(commonPrefix, StringComparison.OrdinalIgnoreCase)) ||
+                                  (commonSourcePrefix != null && kv.Key.StartsWith(commonSourcePrefix, StringComparison.OrdinalIgnoreCase)) ||
+                                  (uvMoviePrefix != null && kv.Key.StartsWith(uvMoviePrefix, StringComparison.OrdinalIgnoreCase));
+
+                bool nameMatches = entry.Name != null && (
+                    (folderPrefix != null && entry.Name.StartsWith(folderPrefix, StringComparison.OrdinalIgnoreCase)) ||
+                    (sourcePrefix != null && entry.Name.StartsWith(sourcePrefix, StringComparison.OrdinalIgnoreCase)) ||
+                    (commonPrefix != null && entry.Name.StartsWith(commonPrefix, StringComparison.OrdinalIgnoreCase)) ||
+                    (commonSourcePrefix != null && entry.Name.StartsWith(commonSourcePrefix, StringComparison.OrdinalIgnoreCase)) ||
+                    (uvMoviePrefix != null && entry.Name.StartsWith(uvMoviePrefix, StringComparison.OrdinalIgnoreCase)));
+
+                if (keyMatches || nameMatches)
+                    result.Add(entry);
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// 在实例化舞台前同步预载舞台与 UVMovie 资源的兜底方法（用于非标准 LoadLive 入口）
+        /// </summary>
         private void PreloadStageBundlesBeforeInstantiate(string bgId)
         {
-            if (string.IsNullOrEmpty(bgId))
-                return;
-
             var main = UmaViewerMain.Instance;
             if (main == null || main.AbList == null)
                 return;
 
-            string folderPrefix = $"3d/env/live/live{bgId}/";
+            // 获取当前 Director 实例的 live 数据以提取歌曲对应的 UVMovie 前缀
+            LiveEntry currentLive = live ?? instance?.live;
+            string uvMoviePrefix = (currentLive != null && currentLive.MusicId > 0)
+                ? $"live/uvmovie/gal_uvmovie_{currentLive.MusicId}"
+                : null;
+
+            bool hasBg = !string.IsNullOrEmpty(bgId);
+            if (!hasBg && string.IsNullOrEmpty(uvMoviePrefix))
+                return;
+
+            // 同步兜底路径匹配专属舞台、sourceresources 材质包、common 公共部件、公共材质包以及当前歌曲的 UVMovie
+            string folderPrefix = hasBg ? $"3d/env/live/live{bgId}/" : null;
+            string sourcePrefix = hasBg ? $"sourceresources/3d/env/live/live{bgId}/" : null;
+            string commonPrefix = hasBg ? "3d/env/live/common/" : null;
+            string commonSourcePrefix = hasBg ? "sourceresources/3d/env/live/common/" : null;
             var required = new List<UmaDatabaseEntry>();
 
             foreach (var kv in main.AbList)
@@ -793,13 +767,19 @@ namespace Gallop.Live
                 if (entry == null || !entry.IsAssetBundle)
                     continue;
 
-                bool keyMatches = kv.Key.StartsWith(
-                    folderPrefix,
-                    StringComparison.OrdinalIgnoreCase);
+                // 同样匹配舞台专属模型、材质包、公共部件、公共材质包以及当前歌曲的 UVMovie 资源
+                bool keyMatches = (folderPrefix != null && kv.Key.StartsWith(folderPrefix, StringComparison.OrdinalIgnoreCase)) ||
+                                  (sourcePrefix != null && kv.Key.StartsWith(sourcePrefix, StringComparison.OrdinalIgnoreCase)) ||
+                                  (commonPrefix != null && kv.Key.StartsWith(commonPrefix, StringComparison.OrdinalIgnoreCase)) ||
+                                  (commonSourcePrefix != null && kv.Key.StartsWith(commonSourcePrefix, StringComparison.OrdinalIgnoreCase)) ||
+                                  (uvMoviePrefix != null && kv.Key.StartsWith(uvMoviePrefix, StringComparison.OrdinalIgnoreCase));
 
-                bool nameMatches = entry.Name != null && entry.Name.StartsWith(
-                    folderPrefix,
-                    StringComparison.OrdinalIgnoreCase);
+                bool nameMatches = entry.Name != null && (
+                    (folderPrefix != null && entry.Name.StartsWith(folderPrefix, StringComparison.OrdinalIgnoreCase)) ||
+                    (sourcePrefix != null && entry.Name.StartsWith(sourcePrefix, StringComparison.OrdinalIgnoreCase)) ||
+                    (commonPrefix != null && entry.Name.StartsWith(commonPrefix, StringComparison.OrdinalIgnoreCase)) ||
+                    (commonSourcePrefix != null && entry.Name.StartsWith(commonSourcePrefix, StringComparison.OrdinalIgnoreCase)) ||
+                    (uvMoviePrefix != null && entry.Name.StartsWith(uvMoviePrefix, StringComparison.OrdinalIgnoreCase)));
 
                 if (keyMatches || nameMatches)
                     required.AddRange(UmaAssetManager.SearchAB(main, entry));
@@ -817,187 +797,40 @@ namespace Gallop.Live
                     isRecursive: false);
             }
 
-            Debug.Log($"[StagePreloadFallback] bgId={bgId}, bundles={required.Count}");
+            Debug.Log($"[StagePreloadFallback] bgId={bgId}, musicId={currentLive?.MusicId}, bundles={required.Count}");
         }
-        private void InitializeMirrorReflections()
+        /// <summary>
+        /// 安全停止并释放正在播放的伴奏与角色人声音轨
+        /// </summary>
+        public void CleanupAudio()
         {
-            if (!_enableMirrorReflection)
-                return;
-
-            _mirrorReflections.Clear();
-
-            AddMirrorReflections(_mirrorReflections, GetComponentsInChildren<MirrorReflection>(true));
-
-            if (_stageController != null)
-                AddMirrorReflections(_mirrorReflections, _stageController.GetComponentsInChildren<MirrorReflection>(true));
-
-            if (_mirrorReflections.Count == 0)
-                AddMirrorReflections(_mirrorReflections, FindObjectsOfType<MirrorReflection>(true));
-
-            if (_mirrorReflections.Count == 0)
+            if (liveMusic != null)
             {
-                Debug.Log("[Mirror] No MirrorReflection found.");
-                return;
+                UmaViewerAudio.Stop(liveMusic);
             }
 
-            Camera mainCam = null;
-            if (_cameraObjects != null && _activeCameraIndex >= 0 && _activeCameraIndex < _cameraObjects.Length)
-                mainCam = _cameraObjects[_activeCameraIndex];
-
-            if (mainCam == null)
-                mainCam = Camera.main;
-
-            for (int i = 0; i < _mirrorReflections.Count; i++)
+            if (liveVocal != null)
             {
-                var mirror = _mirrorReflections[i];
-                if (mirror == null) continue;
-
-                mirror.Initialize(mainCam, i, false);
-                mirror.SetupBaseCamera(mainCam, GetMainCameraFovFactor);
-            }
-
-            Debug.Log($"[Mirror] Initialized {_mirrorReflections.Count} mirrors.");
-        }
-
-        private static void AddMirrorReflections(List<MirrorReflection> target, MirrorReflection[] mirrors)
-        {
-            if (target == null || mirrors == null)
-                return;
-
-            for (int i = 0; i < mirrors.Length; i++)
-            {
-                var mirror = mirrors[i];
-                if (mirror == null || target.Contains(mirror))
-                    continue;
-
-                target.Add(mirror);
+                foreach (var vocal in liveVocal)
+                {
+                    UmaViewerAudio.Stop(vocal);
+                }
+                liveVocal.Clear();
             }
         }
 
-        private float GetMainCameraFovFactor()
-        {
-            return 1f;
-        }
-
-        private void UpdateMirrorReflections()
-        {
-            if (_mirrorReflections == null || _mirrorReflections.Count == 0)
-                return;
-
-            Camera mainCam = null;
-            if (_cameraObjects != null && _activeCameraIndex >= 0 && _activeCameraIndex < _cameraObjects.Length)
-                mainCam = _cameraObjects[_activeCameraIndex];
-
-            if (mainCam == null)
-                mainCam = Camera.main;
-
-            for (int i = 0; i < _mirrorReflections.Count; i++)
-            {
-                var mirror = _mirrorReflections[i];
-                if (mirror == null) continue;
-
-                mirror.SetBaseCamera(mainCam);
-                mirror.SetFovFactorGetter(GetMainCameraFovFactor);
-                mirror.UpdateMirrorParams();
-                mirror.ForceRenderOnce();
-            }
-        }
-        private GallopImageEffect GetActivePostEffect()
-        {
-            if (_mainGallopImageEffect != null)
-                return _mainGallopImageEffect;
-
-            Camera mainCamera = null;
-
-            if (_cameraObjects != null &&
-                _activeCameraIndex >= 0 &&
-                _activeCameraIndex < _cameraObjects.Length)
-            {
-                mainCamera = _cameraObjects[_activeCameraIndex];
-            }
-
-            if (mainCamera == null)
-                mainCamera = Camera.main;
-
-            if (mainCamera == null)
-                return null;
-
-            _mainGallopImageEffect =
-                mainCamera.GetComponent<GallopImageEffect>();
-
-            if (_mainGallopImageEffect == null)
-            {
-                _mainGallopImageEffect =
-                    mainCamera.gameObject
-                        .AddComponent<GallopImageEffect>();
-            }
-
-            return _mainGallopImageEffect;
-        }
-        private void OnUpdatePostEffect_BloomDiffusion(PostEffectUpdateInfo_BloomDiffusion updateInfo)
-        {
-            GallopImageEffect imageEffect = GetActivePostEffect();
-            
-
-            if (imageEffect == null) return;
-
-            DofDiffusionBloomOverlayParam param =
-                imageEffect.DofDiffusionBloomOverlayParam;
-
-            param.IsEnableBloom =
-                updateInfo.IsEnabledBloom;
-
-            param.BloomDofWeight =
-                updateInfo.bloomDofWeight;
-
-            param.BloomThreshold =
-                updateInfo.threshold;
-
-            param.BloomIntensity =
-                updateInfo.intensity;
-
-            param.BloomBlurSize =
-                updateInfo.BloomBlurSize;
-
-            param.BloomBlendMode =
-                updateInfo.BloomBlendMode;
-
-            param.IsEnableDiffusion =
-                updateInfo.IsEnabledDiffusion;
-
-            param.DiffusionBlurSize =
-                updateInfo.diffusionBlurSize;
-
-            param.DiffusionBright =
-                updateInfo.diffusionBright;
-
-            param.DiffusionThreshold =
-                updateInfo.diffusionThreshold;
-
-            param.DiffusionSaturation =
-                updateInfo.diffusionSaturation;
-
-            param.DiffusionContrast =
-                updateInfo.diffusionContrast;
-    //         Debug.Log(
-    // $"[BloomDirector] activeCameraIndex={_activeCameraIndex}, " +
-    // $"imageEffect={(imageEffect != null ? imageEffect.name : "null")}");
-        }
         private void OnDestroy()
         {
+            CleanupAudio();
             UnbindTimelineEvents();
+            CleanupMultiCamera();
+            CleanupMonitorCamera();
+            ClearLiveProps();
 
             if (_instance == this)
                 _instance = null;
         }
-        private void UnbindTimelineEvents()
-        {
-            if (_liveTimelineControl == null)
-                return;
-
-            _liveTimelineControl.OnUpdatePostEffect_BloomDiffusion -=
-                OnUpdatePostEffect_BloomDiffusion;
-        }
     }
 
 }
+

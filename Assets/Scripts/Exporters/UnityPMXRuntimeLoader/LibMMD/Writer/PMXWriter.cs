@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using LibMMD.Material;
 using LibMMD.Model;
@@ -35,18 +36,8 @@ namespace LibMMD.Writer
                 RigidBodyIndexSize = 2
             };
 
-            PMXEntryItem.Element baseElement = new PMXEntryItem.Element();
-            baseElement.IsMorph = false;
-            baseElement.MorphIndex = 0;
-            baseElement.BoneIndex = 0;
-
-            PMXEntryItem baseEntry = new PMXEntryItem();
-            baseEntry.EntryItemName = "Root";
-            baseEntry.EntryItemNameEn = "Root";
-            baseEntry.IsSpecial = true;
-            baseEntry.Elements = new List<PMXEntryItem.Element>{ baseElement };
-
-            model.Entrys.Insert(0, baseEntry);
+            var entries = BuildWriteEntries(model);
+            PMXDisplayFrameExporter.ValidateEntries(model, entries);
 
             WriteMeta(writer, pmxHeader);
             WritePmxConfig(writer, PmxConfig);
@@ -57,9 +48,36 @@ namespace LibMMD.Writer
             WriteParts(writer, config, model, PmxConfig);
             WriteBones(writer, model, PmxConfig);
             WriteMorphs(writer, model, PmxConfig);
-            WriteEntries(writer, model.Entrys, PmxConfig);
+            WriteEntries(writer, entries, PmxConfig);
             WriteRigidBodies(writer, model.Rigidbodies, PmxConfig);
             WriteJoints(writer, model, PmxConfig);
+        }
+
+        private static List<PMXEntryItem> BuildWriteEntries(RawMMDModel model)
+        {
+            var entries = model.Entrys == null
+                ? new List<PMXEntryItem>()
+                : new List<PMXEntryItem>(model.Entrys);
+            if (entries.Any(entry => entry != null &&
+                string.Equals(entry.EntryItemName, "Root", StringComparison.OrdinalIgnoreCase)))
+                return entries;
+
+            var bones = model.Bones ?? Array.Empty<Bone>();
+            if (bones.Length == 0)
+                return entries;
+
+            var root = new PMXEntryItem
+            {
+                EntryItemName = "Root",
+                EntryItemNameEn = "Root",
+                IsSpecial = true,
+                Elements = new List<PMXEntryItem.Element>
+                {
+                    new PMXEntryItem.Element { IsMorph = false, BoneIndex = 0 }
+                }
+            };
+            entries.Insert(0, root);
+            return entries;
         }
 
         private static void WriteJoints(BinaryWriter writer, RawMMDModel model, PmxConfig pmxConfig)

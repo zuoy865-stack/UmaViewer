@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -52,23 +52,27 @@ namespace Gallop.Live.Cutt
                 position = umaContainer.transform;
             }
 
-            _liveParentDefaultTransform = position.parent;
-            _liveParentTransform = position.parent;
-            _liveCharaInitialPosition = position.position;
+            Transform root = umaContainer.transform;
+            _liveParentDefaultTransform = root.parent;
+            _liveParentTransform = root.parent;
+            _liveCharaInitialPosition = root.parent != null
+                ? root.localPosition
+                : root.position;
 
+            float bodyScale = UmaContainer != null ? UmaContainer.BodyScale : 1.0f;
             if (head != null)
             {
-                HeadHeght = (position.InverseTransformPoint(head.position).y + 0.1f) * UmaContainer.BodyScale;
+                HeadHeght = (position.InverseTransformPoint(head.position).y + 0.1f) * bodyScale;
             }
 
             if (waist != null)
             {
-                WaistHeght = position.InverseTransformPoint(waist.position).y * UmaContainer.BodyScale;
+                WaistHeght = position.InverseTransformPoint(waist.position).y * bodyScale;
             }
 
             if (chest != null)
             {
-                ChestHeght = position.InverseTransformPoint(chest.position).y * UmaContainer.BodyScale;
+                ChestHeght = position.InverseTransformPoint(chest.position).y * bodyScale;
             }
 
             Debug.Log($"InfoChara {UmaContainer.CharaEntry.Name}: {HeadHeght}, {WaistHeght}, {ChestHeght}");
@@ -76,9 +80,52 @@ namespace Gallop.Live.Cutt
 
         private Transform GetBone(string name)
         {
-            if (Bones != null && Bones.TryGetValue(name, out Transform bone))
+            if (string.IsNullOrEmpty(name)) return null;
+
+            if (Bones != null)
             {
-                return bone;
+                if (Bones.TryGetValue(name, out Transform bone) && bone != null)
+                {
+                    return bone;
+                }
+
+                // 针对高频关键骨骼节点的别名与层级容错回退机制
+                string[] fallbacks = null;
+                if (name.Equals("Chest", StringComparison.OrdinalIgnoreCase))
+                {
+                    fallbacks = new string[] { "Chest_Attach", "Spine2", "Spine1", "Spine", "UpperBody" };
+                }
+                else if (name.Equals("Waist", StringComparison.OrdinalIgnoreCase))
+                {
+                    fallbacks = new string[] { "Waist_Attach", "Pelvis", "Hip", "Spine" };
+                }
+                else if (name.Equals("Head", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (UmaContainer != null && UmaContainer.HeadBone != null)
+                    {
+                        return UmaContainer.HeadBone.transform;
+                    }
+                    fallbacks = new string[] { "Head_Attach", "Neck" };
+                }
+                else if (name.Equals("Wrist_L", StringComparison.OrdinalIgnoreCase))
+                {
+                    fallbacks = new string[] { "Hand_Attach_L", "Hand_L", "Forearm_L" };
+                }
+                else if (name.Equals("Wrist_R", StringComparison.OrdinalIgnoreCase))
+                {
+                    fallbacks = new string[] { "Hand_Attach_R", "Hand_R", "Forearm_R" };
+                }
+
+                if (fallbacks != null)
+                {
+                    for (int f = 0; f < fallbacks.Length; f++)
+                    {
+                        if (Bones.TryGetValue(fallbacks[f], out Transform fbBone) && fbBone != null)
+                        {
+                            return fbBone;
+                        }
+                    }
+                }
             }
 
             return null;
@@ -193,6 +240,7 @@ namespace Gallop.Live.Cutt
             }
         }
 
+        // 官方Cutt规范：固定高度部位提供相对于原点的纯高度向量，站位世界坐标由时间轴charaPos提供
         public Vector3 liveCharaConstHeightHeadPosition =>
             new Vector3(liveCharaInitialPosition.x, HeadHeght, liveCharaInitialPosition.z);
 

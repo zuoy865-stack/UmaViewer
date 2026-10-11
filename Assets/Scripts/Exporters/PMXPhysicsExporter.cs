@@ -11,7 +11,7 @@ using UnityEngine;
 /// </summary>
 internal static class PMXPhysicsExporter
 {
-    // 碰撞组定义：使用独立组并关闭组内碰撞，避免受 Joint 约束的相邻刚体互相挤压
+    // 碰撞组编号用于区分物理刚体类别。
     internal const int DynamicCollisionGroup = 3;
     internal const int TailBodyCollisionGroup = 2;
     internal const int SkirtCollisionGroup = 4;
@@ -93,6 +93,28 @@ internal static class PMXPhysicsExporter
         TwistSpring = 9f
     };
 
+    // 附件按区域使用保守预设，避免沿用发束参数。
+    internal static readonly PhysicsPreset BustPreset = new PhysicsPreset
+    {
+        RootMass = 0.45f, TipMass = 0.2f, RootTranslateDamp = 0.9f, TipTranslateDamp = 0.97f,
+        RootRotateDamp = 0.9f, TipRotateDamp = 0.97f, BendLimitDegrees = 8f,
+        TwistLimitDegrees = 4f, BendSpring = 18f, TwistSpring = 9f
+    };
+    internal static readonly PhysicsPreset RibbonPreset = new PhysicsPreset
+    {
+        RootMass = 0.18f, TipMass = 0.06f, RootTranslateDamp = 0.9f, TipTranslateDamp = 0.98f,
+        RootRotateDamp = 0.9f, TipRotateDamp = 0.98f, BendLimitDegrees = 12f,
+        TwistLimitDegrees = 6f, BendSpring = 16f, TwistSpring = 8f
+    };
+    internal static readonly PhysicsPreset CapePreset = new PhysicsPreset
+    {
+        RootMass = 0.55f, TipMass = 0.2f, RootTranslateDamp = 0.9f, TipTranslateDamp = 0.98f,
+        RootRotateDamp = 0.9f, TipRotateDamp = 0.98f, BendLimitDegrees = 10f,
+        TwistLimitDegrees = 5f, BendSpring = 18f, TwistSpring = 9f
+    };
+
+    internal enum AttachmentCategory { None, Bust, Ribbon, Cape }
+
     internal sealed class PhysicsPreset
     {
         internal float RootMass;
@@ -110,9 +132,12 @@ internal static class PMXPhysicsExporter
     internal sealed class Context
     {
         internal readonly List<Chain> Chains = new List<Chain>();
+        internal readonly List<PMXPhysicsChainCollector.Candidate> AttachmentCandidates =
+            new List<PMXPhysicsChainCollector.Candidate>();
         internal readonly List<SkirtColumn> SkirtColumns = new List<SkirtColumn>();
         internal readonly HashSet<Transform> DynamicBones = new HashSet<Transform>();
         internal SkirtController SkirtController;
+        internal PMXMeshExportContext Mesh;
     }
 
     internal sealed class Chain
@@ -120,6 +145,7 @@ internal static class PMXPhysicsExporter
         internal Transform Root;
         internal bool IsEar;
         internal bool IsTail;
+        internal AttachmentCategory Attachment;
         internal readonly HashSet<Transform> Bones = new HashSet<Transform>();
         internal readonly Dictionary<Transform, float> Radii = new Dictionary<Transform, float>();
     }
@@ -170,6 +196,9 @@ internal static class PMXPhysicsExporter
             }
         }
 
+        context.AttachmentCandidates.AddRange(
+            PMXPhysicsChainCollector.CollectCandidates(character, hierarchy, claimedBones));
+
         return context;
     }
 
@@ -183,17 +212,23 @@ internal static class PMXPhysicsExporter
         List<MMDJoint> joints = new List<MMDJoint>();
         Dictionary<Transform, int> dynamicRigidIndexes = new Dictionary<Transform, int>();
 
+        // 先替换裙骨并统一索引，再生成其他区域刚体。
+        var skirtLayout = PMXSkirtLayoutExporter.TryBuild(context, coordinateRoot, boneResult, model);
         foreach (Chain chain in context.Chains)
         {
             BuildChainPhysics(chain, coordinateRoot, boneResult, rigidBodies, joints, dynamicRigidIndexes);
         }
 
         PMXSkirtPhysicsExporter.BuildSkirtPhysics(
-            context, coordinateRoot, boneResult, rigidBodies, joints, dynamicRigidIndexes);
+            context, coordinateRoot, boneResult, rigidBodies, joints, dynamicRigidIndexes,
+            skirtLayout);
 
+        // 裙骨替换后的数组同步给最终模型。
+        model.Bones = boneResult.Bones;
         Validate(rigidBodies, joints, boneResult.Bones.Length);
         model.Rigidbodies = rigidBodies.ToArray();
         model.Joints = joints.ToArray();
+        PMXSkirtExportDiagnostics.Record(model, context, skirtLayout);
     }
 
     private static Transform FindRootTransform(string boneName, Transform[] hierarchy)
@@ -250,7 +285,7 @@ internal static class PMXPhysicsExporter
     {
         if (!boneResult.BoneIndexes.ContainsKey(chain.Root)) return;
 
-        PhysicsPreset preset = chain.IsEar ? EarPreset : chain.IsTail ? TailPreset : DefaultPreset;
+        PhysicsPreset preset = GetPreset(chain);
         Transform anchorBone = FindNearestExportedParentTransform(chain.Root.parent, boneResult.BoneIndexes);
         int anchorBoneIndex = anchorBone != null ? boneResult.BoneIndexes[anchorBone] : 0;
         int anchorIndex = rigidBodies.Count;
@@ -290,9 +325,18 @@ internal static class PMXPhysicsExporter
                 : 1f;
             int rigidIndex = rigidBodies.Count;
 
-            // 严格基于骨骼自身局部空间计算胶囊体刚体朝向与中心
+            // 编辑器群组从 1 计。群组 4 是 bit3，头发/耳朵禁止自碰，只留群组 5、6。
+            // 尾巴动态体额外保留群组 3（bit2，身体阻挡体）。
+            ushort dynamicMask = chain.Attachment != AttachmentCategory.None
+                ? PMXPhysicsChainCollector.GetMask(chain.Attachment)
+                : chain.IsTail
+                ? CreateCollisionMaskWithAllowedGroups(
+                    TailBodyCollisionGroup, SkirtCollisionGroup, SkirtLegCollisionGroup)
+                : CreateCollisionMaskWithAllowedGroups(
+                    SkirtCollisionGroup, SkirtLegCollisionGroup);
             MMDRigidBody dynamicBody = CreateDynamicBodyLocalSpace(
-                bone, singleChild, chain.Radii[bone], depthRatio, coordinateRoot, boneIndex, preset, chain.Bones);
+                bone, singleChild, chain.Radii[bone], depthRatio, coordinateRoot, boneIndex, preset, chain.Bones,
+                dynamicMask);
             rigidBodies.Add(dynamicBody);
             dynamicRigidIndexes[bone] = rigidIndex;
 
@@ -314,11 +358,23 @@ internal static class PMXPhysicsExporter
         }
     }
 
+    private static PhysicsPreset GetPreset(Chain chain)
+    {
+        switch (chain.Attachment)
+        {
+            case AttachmentCategory.Bust: return BustPreset;
+            case AttachmentCategory.Ribbon: return RibbonPreset;
+            case AttachmentCategory.Cape: return CapePreset;
+            default: return chain.IsEar ? EarPreset : chain.IsTail ? TailPreset : DefaultPreset;
+        }
+    }
+
     /// <summary>
     /// 严格基于骨骼本地坐标系构建刚体，消除跨骨段增量误差，并支持末端叶骨切线平滑延伸。
     /// </summary>
     private static MMDRigidBody CreateDynamicBodyLocalSpace(Transform bone, Transform child, float configuredRadius,
-        float depthRatio, Transform coordinateRoot, int boneIndex, PhysicsPreset preset, HashSet<Transform> chainBones)
+        float depthRatio, Transform coordinateRoot, int boneIndex, PhysicsPreset preset, HashSet<Transform> chainBones,
+        ushort collisionMask)
     {
         Vector3 start = coordinateRoot.InverseTransformPoint(bone.position);
         Quaternion boneRotInCoord = Quaternion.Inverse(coordinateRoot.rotation) * bone.rotation;
@@ -341,7 +397,8 @@ internal static class PMXPhysicsExporter
             float cylinderLength = GetCapsuleCylinderLength(length, radius);
             Vector3 rotationEuler = ConvertUnityRotationToWriterEuler(capsuleRot);
 
-            return CreateCapsuleBody(bone.name, boneIndex, radius, cylinderLength, position, rotationEuler, depthRatio, preset);
+            return CreateCapsuleBody(
+                bone.name, boneIndex, radius, cylinderLength, position, rotationEuler, depthRatio, preset, collisionMask);
         }
 
         // 末端叶骨（无子骨）：沿父骨到当前骨的局部切线方向延伸包裹发梢
@@ -367,7 +424,8 @@ internal static class PMXPhysicsExporter
             float cylinderLength = GetCapsuleCylinderLength(length, radius);
             Vector3 rotationEuler = ConvertUnityRotationToWriterEuler(capsuleRot);
 
-            return CreateCapsuleBody(bone.name, boneIndex, radius, cylinderLength, position, rotationEuler, depthRatio, preset);
+            return CreateCapsuleBody(
+                bone.name, boneIndex, radius, cylinderLength, position, rotationEuler, depthRatio, preset, collisionMask);
         }
 
         // 单节点孤立骨骼：使用球体刚体
@@ -379,8 +437,7 @@ internal static class PMXPhysicsExporter
             NameEn = bone.name + "_physics",
             AssociatedBoneIndex = boneIndex,
             CollisionGroup = DynamicCollisionGroup,
-            CollisionMask = CreateCollisionMaskExcludingGroups(
-                DynamicCollisionGroup, SkirtCollisionGroup, SkirtLegCollisionGroup),
+            CollisionMask = collisionMask,
             Shape = MMDRigidBody.RigidBodyShape.RigidShapeSphere,
             Dimemsions = new Vector3(sphereRadius, 0, 0),
             Position = start,
@@ -395,7 +452,8 @@ internal static class PMXPhysicsExporter
     }
 
     private static MMDRigidBody CreateCapsuleBody(string boneName, int boneIndex, float radius,
-        float cylinderLength, Vector3 position, Vector3 rotationEuler, float depthRatio, PhysicsPreset preset)
+        float cylinderLength, Vector3 position, Vector3 rotationEuler, float depthRatio, PhysicsPreset preset,
+        ushort collisionMask)
     {
         return new MMDRigidBody
         {
@@ -403,8 +461,7 @@ internal static class PMXPhysicsExporter
             NameEn = boneName + "_physics",
             AssociatedBoneIndex = boneIndex,
             CollisionGroup = DynamicCollisionGroup,
-            CollisionMask = CreateCollisionMaskExcludingGroups(
-                DynamicCollisionGroup, SkirtCollisionGroup, SkirtLegCollisionGroup),
+            CollisionMask = collisionMask,
             Shape = MMDRigidBody.RigidBodyShape.RigidShapeCapsule,
             Dimemsions = new Vector3(radius, cylinderLength, 0),
             Position = position,
@@ -427,8 +484,9 @@ internal static class PMXPhysicsExporter
             NameEn = chain.Root.name + "_anchor",
             AssociatedBoneIndex = boneIndex,
             CollisionGroup = DynamicCollisionGroup,
-            CollisionMask = CreateCollisionMaskExcludingGroups(
-                DynamicCollisionGroup, SkirtCollisionGroup, SkirtLegCollisionGroup),
+            // 锚点同样禁止群组 4 自碰，且不打开群组 3。
+            CollisionMask = CreateCollisionMaskWithAllowedGroups(
+                SkirtCollisionGroup, SkirtLegCollisionGroup),
             Shape = MMDRigidBody.RigidBodyShape.RigidShapeSphere,
             Dimemsions = new Vector3(radius, 0, 0),
             Position = coordinateRoot.InverseTransformPoint(chain.Root.position),
@@ -464,7 +522,7 @@ internal static class PMXPhysicsExporter
             NameEn = chain.Root.name + "_body_blocker",
             AssociatedBoneIndex = anchorBoneIndex,
             CollisionGroup = TailBodyCollisionGroup,
-            CollisionMask = CreateCollisionMaskOnlyCollideWith(DynamicCollisionGroup),
+            CollisionMask = CreateCollisionMaskAllowingAllExceptGroups(),
             Shape = MMDRigidBody.RigidBodyShape.RigidShapeSphere,
             Dimemsions = new Vector3(radius, 0, 0),
             Position = anchorPosition,
@@ -508,7 +566,8 @@ internal static class PMXPhysicsExporter
         return Mathf.Max(MinimumSegmentLength, endpointDistance - radius * 2f);
     }
 
-    internal static ushort CreateCollisionMaskExcludingGroups(params int[] groups)
+    // PMX 文件 bit=1 允许接触；编辑器“不碰撞”勾选对应 bit=0。
+    internal static ushort CreateCollisionMaskWithAllowedGroups(params int[] groups)
     {
         ushort mask = 0;
         foreach (int group in groups) mask |= (ushort)(1 << group);
@@ -516,13 +575,12 @@ internal static class PMXPhysicsExporter
     }
 
     /// <summary>
-    /// 白名单碰撞掩码：在 PMX/MMD 中，掩码中 bit 为 1 代表非碰撞（屏蔽），bit 为 0 代表发生碰撞。
-    /// 该方法将所有组默认设为屏蔽（1），仅允许指定的 targetGroups 发生碰撞（置 0）。
+    /// 指定组写 bit=0（编辑器勾选不碰撞），其余组写 bit=1。
     /// </summary>
-    internal static ushort CreateCollisionMaskOnlyCollideWith(params int[] targetGroups)
+    internal static ushort CreateCollisionMaskAllowingAllExceptGroups(params int[] excludedGroups)
     {
-        ushort mask = 0xFFFF; // 默认屏蔽全部 16 个组
-        foreach (int group in targetGroups)
+        ushort mask = 0xFFFF;
+        foreach (int group in excludedGroups)
         {
             if (group >= 0 && group < 16)
                 mask &= (ushort)~(1 << group);

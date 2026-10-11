@@ -140,6 +140,10 @@ namespace Gallop.Live
                 if (renderer == null)
                     continue;
 
+                // 洗光只认 washlight/truss_roof 物体，不把天空/草地当灯。
+                if (StageBlinkLightDriver.IsProtectedEnvironmentRenderer(renderer))
+                    continue;
+
                 GameObject go = renderer.gameObject;
                 string objectName = go.name;
 

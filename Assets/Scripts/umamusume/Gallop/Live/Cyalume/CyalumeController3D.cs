@@ -68,6 +68,10 @@ namespace Gallop.Live.Cyalume
 
         public void StartOfficialLikeSetup(bool forceRebuild = false)
         {
+            // 防御协程启动崩溃：当组件未启用或对象在层级中处于 inactive 状态时，严禁调用 StartCoroutine
+            if (!isActiveAndEnabled || !gameObject.activeInHierarchy)
+                return;
+
             if (_setupCoroutine != null)
             {
                 StopCoroutine(_setupCoroutine);
@@ -167,6 +171,10 @@ namespace Gallop.Live.Cyalume
 
         private void StartForceReplaceWarmup()
         {
+            // 防御协程启动崩溃：当组件未启用或对象在层级中处于 inactive 状态时，严禁调用 StartCoroutine
+            if (!isActiveAndEnabled || !gameObject.activeInHierarchy)
+                return;
+
             if (_forceReplaceCoroutine != null)
             {
                 StopCoroutine(_forceReplaceCoroutine);
@@ -208,8 +216,9 @@ namespace Gallop.Live.Cyalume
 
             _initializedObjects = false;
             _usingRandomTarget = false;
-            _defaultInstance = null;
-            _randomInstance = null;
+
+            // 先精准销毁本组件自身生成的旧实例，防止内存残留或引用丢失
+            DestroyExistingCyalumeChildren();
 
             _allRendererList.Clear();
             _targetRendererList.Clear();
@@ -223,7 +232,6 @@ namespace Gallop.Live.Cyalume
                 return;
             }
 
-            DestroyExistingCyalumeChildren();
             TryInstantiateNamedPrefab(assetHolder, "default", out _defaultInstance, _defaultRenderers);
             TryInstantiateNamedPrefab(assetHolder, "random", out _randomInstance, _randomRenderers);
             InitializeMobController(assetHolder);
@@ -427,23 +435,28 @@ namespace Gallop.Live.Cyalume
             _mobHasDirty = false;
         }
 
+        /// <summary>
+        /// 精准销毁当前组件由自身生成的具体引用（即 _defaultInstance、_randomInstance、_mobInstance），
+        /// 绝不模糊匹配子节点名称，防止误删角色身上的附件或舞台其他物件。
+        /// </summary>
         private void DestroyExistingCyalumeChildren()
         {
-            for (int i = transform.childCount - 1; i >= 0; i--)
+            if (_defaultInstance != null)
             {
-                var child = transform.GetChild(i);
-                if (child == null)
-                    continue;
+                Destroy(_defaultInstance);
+                _defaultInstance = null;
+            }
 
-                string childName = child.name ?? string.Empty;
-                bool isKnownCyalumeChild =
-                    childName.Equals("default", StringComparison.OrdinalIgnoreCase) ||
-                    childName.Equals("random", StringComparison.OrdinalIgnoreCase) ||
-                    (!string.IsNullOrEmpty(_mobPrefabName) && childName.Equals(_mobPrefabName, StringComparison.OrdinalIgnoreCase)) ||
-                    childName.IndexOf("cyalume", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (_randomInstance != null)
+            {
+                Destroy(_randomInstance);
+                _randomInstance = null;
+            }
 
-                if (isKnownCyalumeChild)
-                    Destroy(child.gameObject);
+            if (_mobInstance != null)
+            {
+                Destroy(_mobInstance);
+                _mobInstance = null;
             }
         }
 

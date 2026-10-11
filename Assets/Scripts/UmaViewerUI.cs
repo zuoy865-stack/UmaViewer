@@ -14,7 +14,23 @@ using System.Text;
 
 public class UmaViewerUI : MonoBehaviour
 {
-    public static UmaViewerUI Instance;
+    private static UmaViewerUI _instance;
+    /// <summary>
+    /// 全局 UI 单例。支持在 Unity 域重载（Hotreload）静态引用丢失后自动在当前场景中找回活跃实例自愈。
+    /// </summary>
+    public static UmaViewerUI Instance
+    {
+        get
+        {
+            if (_instance == null)
+            {
+                _instance = FindObjectOfType<UmaViewerUI>();
+            }
+            return _instance;
+        }
+        set => _instance = value;
+    }
+
     private UmaViewerMain Main => UmaViewerMain.Instance;
     private UmaViewerBuilder Builder => UmaViewerBuilder.Instance;
 
@@ -100,6 +116,7 @@ public class UmaViewerUI : MonoBehaviour
     public Image LiveSelectImage;
     public Text LiveSelectInfoText;
     private LiveEntry currentLive;
+    public LiveEntry CurrentLive => currentLive;
 
     [Header("settings")]
     public UISettingsCamera CameraSettings;
@@ -140,7 +157,7 @@ public class UmaViewerUI : MonoBehaviour
 
     private void Awake()
     {
-        Instance = this;
+        _instance = this;
     }
 
     private void Start()
@@ -158,10 +175,16 @@ public class UmaViewerUI : MonoBehaviour
         canvasScaler.referenceResolution = new Vector2(1280, 720);
 #endif
         StartCoroutine(ApplyGraphicsSettings());
+        InitLivePreviewUI();
     }
 
     private void OnDestroy()
     {
+        if (_instance == this)
+        {
+            _instance = null;
+        }
+
         UmaAssetManager.OnLoadedBundleUpdate -= AssetSettings.LoadedAssetsAdd;
         UmaAssetManager.OnLoadedBundleRemove -= AssetSettings.LoadedAssetsRemove;
         UmaAssetManager.OnLoadedBundleClear -= AssetSettings.LoadedAssetsClear;
@@ -169,17 +192,18 @@ public class UmaViewerUI : MonoBehaviour
 
     private void Update()
     {
-        if (Builder.CurrentAudioSources.Count > 0 && Builder.CurrentAudioSources[0])
+        // 防御性检查：热重载或跨场景过渡期间 Builder 或 AudioSettings 可能尚未就绪或已被释放
+        if (Builder != null && Builder.CurrentAudioSources != null && Builder.CurrentAudioSources.Count > 0 && Builder.CurrentAudioSources[0])
         {
             AudioSource MianSource = Builder.CurrentAudioSources[0];
-            if (MianSource.clip)
+            if (MianSource.clip && AudioSettings != null)
             {
                 AudioSettings.UpdateTrack(MianSource);
             }
         }
 
-        var umaContainer = Builder.CurrentUMAContainer;
-        if (umaContainer != null && umaContainer.OverrideController != null)
+        var umaContainer = Builder?.CurrentUMAContainer;
+        if (umaContainer != null && umaContainer.OverrideController != null && AnimationSettings != null)
         {
             AnimationSettings.UpdateAnimationInfo(umaContainer);
         }
@@ -235,6 +259,7 @@ public class UmaViewerUI : MonoBehaviour
             var container3 = Instantiate(UmaContainerPrefab,CharactersList.content).GetComponent<UmaUIContainer>();
             UIPressScaleFeedback.AddTo(container3.gameObject);
             container3.UseLocalizedText();
+            container3.Id = chara.Id.ToString();
             container3.Name = container3.name = chara.Id + " " + chara.GetName();
             container3.Button.onClick.AddListener(() =>
             {
@@ -247,6 +272,9 @@ public class UmaViewerUI : MonoBehaviour
                 container3.Image.sprite = (chara.Icon == null ? CharaIconDefault : chara.Icon);
                 container3.Image.enabled = true;
             }
+
+            // 向 Live 音轨管理器注册角色卡片映射
+            LiveVocalSelectManager.Instance.RegisterCharacterItem(chara.Id, container3);
 
             var container4 = Instantiate(UmaContainerPrefab,AnimationSetList.content).GetComponent<UmaUIContainer>();
 
@@ -853,24 +881,98 @@ public class UmaViewerUI : MonoBehaviour
         ScenePageCtrl.Initialize(pageentrys, SceneList);
     }
 
+    /// <summary>
+    /// 初始化 Live 封面图标的交互：点击可播放试听音频，并在按压时有视觉缩放反馈
+    /// </summary>
+    private void InitLivePreviewUI()
+    {
+        if (LiveSelectImage != null)
+        {
+            var btn = LiveSelectImage.GetComponent<Button>();
+            if (btn == null)
+            {
+                btn = LiveSelectImage.gameObject.AddComponent<Button>();
+            }
+            btn.onClick.RemoveAllListeners();
+            btn.onClick.AddListener(PlayCurrentLivePreview);
+            LiveSelectImage.raycastTarget = true;
+            UIPressScaleFeedback.AddTo(LiveSelectImage.gameObject);
+        }
+    }
+
+    /// <summary>
+    /// 播放当前选中 Live 的预览试听音频，播放一次后自动停止；再次点击从头重新播放
+    /// </summary>
+    public void PlayCurrentLivePreview()
+    {
+        if (currentLive != null)
+        {
+            Builder.loadLivePreviewSound(currentLive.MusicId);
+        }
+    }
+
+    /// <summary>
+    /// 停止当前正在播放的音频（供取消按钮等 UI 关闭面板事件调用）
+    /// </summary>
+    public void StopAudio()
+    {
+        AudioSettings.StopAudio();
+    }
+
     public void PlayLive()
     {
         if (currentLive == null) return;
-        PoseManager.SetPoseMode(false);
-        var selectlist = LiveSelectList.content.GetComponentsInChildren<LiveCharacterSelect>();
-        if (selectlist != null)
+
+        // 播放 Live 前退出 Live 选人模式并清理选中槽位，避免状态残留
+        LiveVocalSelectManager.Instance.ExitLiveSelectMode();
+        CurrentSeletChara = null;
+
+        // 第 0 毫秒立即隐藏选人面板并唤起加载进度条，杜绝界面假死与空白定格
+        if (LiveSelectPannel != null)
         {
-            LiveTime = true;
-            ModelSettings.SetEyeTrackingEnable(false);
-            Builder.LoadLive(currentLive, new List<LiveCharacterSelect>(selectlist));
             LiveSelectPannel.SetActive(false);
+        }
+        if (UmaSceneController.instance != null)
+        {
+            UmaSceneController.instance.LoadingProgressChange(0, 100, "Preparing Live Assets...");
+        }
+
+        if (PoseManager != null)
+        {
+            PoseManager.SetPoseMode(false);
+        }
+
+        if (LiveSelectList != null && LiveSelectList.content != null)
+        {
+            var selectlist = LiveSelectList.content.GetComponentsInChildren<LiveCharacterSelect>();
+            if (selectlist != null)
+            {
+                if (AudioSettings != null)
+                {
+                    AudioSettings.StopAudio(); // 进入正式 Live 前停止正在播放的试听音频
+                }
+                LiveTime = true;
+                if (ModelSettings != null)
+                {
+                    ModelSettings.SetEyeTrackingEnable(false);
+                }
+                if (Builder != null)
+                {
+                    Builder.LoadLive(currentLive, new List<LiveCharacterSelect>(selectlist));
+                }
+            }
         }
     }
 
     void ShowLiveSelectPanel(LiveEntry entry)
     {
+        // 弹出新的 Live 面板时先退出先前的选人模式并重置选中槽位
+        LiveVocalSelectManager.Instance.ExitLiveSelectMode();
+        CurrentSeletChara = null;
+
         LiveSelectPannel.SetActive(true);
-        Builder.loadLivePreviewSound(entry.MusicId);
+        // 打开弹窗时不自动播放试听，若先前有正在播放的音频则先停止
+        AudioSettings.StopAudio();
         for (int i = LiveSelectList.content.childCount - 1; i >= 0; i--)
         {
             Destroy(LiveSelectList.content.GetChild(i).gameObject);
@@ -1308,6 +1410,32 @@ public class UmaViewerUI : MonoBehaviour
     /// <summary> Toggles one object ON and all others from UI.TogglablePanels list OFF </summary>
     public void ToggleUIPanel(GameObject go)
     {
+        // 模式与状态隔离处理：
+        // 1. 若打开的是角色面板但并非 Live 槽位点击触发（CurrentSeletChara == null），确保退出 Live 选人模式
+        // 2. 若关闭角色面板，或者切换至其他任何面板，彻底退出 Live 选人模式并清空槽位选择
+        if (go == SelectCharacterPannel)
+        {
+            if (go.activeSelf)
+            {
+                // 关闭角色面板
+                LiveVocalSelectManager.Instance.ExitLiveSelectMode();
+                CurrentSeletChara = null;
+            }
+            else if (CurrentSeletChara == null)
+            {
+                // 普通模式打开角色面板（非 Live 选人）
+                LiveVocalSelectManager.Instance.ExitLiveSelectMode();
+            }
+        }
+        else
+        {
+            // 切换至其他功能面板
+            if (LiveVocalSelectManager.Instance.IsLiveSelectMode)
+            {
+                LiveVocalSelectManager.Instance.ExitLiveSelectMode();
+                CurrentSeletChara = null;
+            }
+        }
 
         if (go.activeSelf || !TogglablePanels.Contains(go))
         {

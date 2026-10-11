@@ -1,0 +1,66 @@
+﻿Microsoft(R) Visual C# 编译器 版本 4.3.1-3.22526.13 (41a5af9d)
+版权所有(C) Microsoft Corporation。保留所有权利。
+
+Assets\Scripts\umamusume\Gallop\Cyspring\CyspringRootbone.cs(551,21): warning CS0108: “CySpringRootBone.FindCySpringBone(List<CySpringBoneBase>, Func<string, bool>, bool)”隐藏继承的成员“CySpringBoneBase.FindCySpringBone(List<CySpringBoneBase>, Func<string, bool>, bool)”。如果是有意隐藏，请使用关键字 new。
+warning CS1701: 假定“Newtonsoft.Json”使用的程序集引用“netstandard, Version=2.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51”与“netstandard”的标识“netstandard, Version=2.1.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51”匹配，您可能需要提供运行时策略
+warning CS1701: 假定“K4os.Compression.LZ4.Streams”使用的程序集引用“netstandard, Version=2.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51”与“netstandard”的标识“netstandard, Version=2.1.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51”匹配，您可能需要提供运行时策略
+Assets\Scripts\Exporters\UnityPMXRuntimeLoader\LibMMD\Unity3D\PMXModelLoader.cs(47,26): warning CS0168: 声明了变量“ex”，但从未使用过
+Assets\Scripts\UmaViewerBuilder.cs(412,14): warning CS0219: 变量“isDefaultHead”已被赋值，但从未使用过它的值
+Assets\Scripts\umamusume\Gallop\Live\Director.cs(20,30): warning CS0649: 从未对字段“Director._cameraNodes”赋值，字段将一直保持其默认值 null
+Assets\Scripts\umamusume\Gallop\Live\Cutt\LiveTimelineDataList\LiveTimelineBgColor1Data.cs(76,40): warning CS0649: 从未对字段“LiveTimelineBgColor1Data._targetCharaIdArray”赋值，字段将一直保持其默认值 null
+Assets\Scripts\Exporters\UnityPMXRuntimeLoader\LibMMD\Unity3D\ImageLoader\BitmapLoader.cs(11,16): warning CS0649: 从未对字段“BitmapLoader.BmpPallete.B”赋值，字段将一直保持其默认值 0
+Assets\Scripts\umamusume\Gallop\Live\StageController.BgColor.cs(20,43): warning CS0649: 从未对字段“NeonMaterialInfo._mainMaterial”赋值，字段将一直保持其默认值 null
+Assets\Scripts\Pose\PoseManager.cs(32,9): warning CS0649: 从未对字段“PoseManager._loadMorphs”赋值，字段将一直保持其默认值 null
+Assets\Scripts\Exporters\UnityPMXRuntimeLoader\LibMMD\Unity3D\ImageLoader\BitmapLoader.cs(13,16): warning CS0649: 从未对字段“BitmapLoader.BmpPallete.R”赋值，字段将一直保持其默认值 0
+Assets\Scripts\umamusume\Gallop\Live\CameraLookAt.cs(12,28): warning CS0649: 从未对字段“CameraLookAt._attachObject”赋值，字段将一直保持其默认值 null
+Assets\Scripts\Settings\UISettingsModel.cs(17,37): warning CS0649: 从未对字段“UISettingsModel._outlineWidthSlider”赋值，字段将一直保持其默认值 null
+Assets\Scripts\Exporters\UnityPMXRuntimeLoader\LibMMD\Unity3D\ImageLoader\BitmapLoader.cs(12,16): warning CS0649: 从未对字段“BitmapLoader.BmpPallete.G”赋值，字段将一直保持其默认值 0
+Assets\Scripts\umamusume\Gallop\Live\StageController.BgColor.cs(61,45): warning CS0649: 从未对字段“StageController._washLightMaterials”赋值，字段将一直保持其默认值 null
+Assets\Scripts\umamusume\Gallop\Live\CameraLookAt.cs(18,28): warning CS0649: 从未对字段“CameraLookAt._rotateObject”赋值，字段将一直保持其默认值 null
+Assets\Scripts\UI\Popup.cs(9,37): warning CS0649: 从未对字段“Popup.RejectButton”赋值，字段将一直保持其默认值 null
+Assets\Scripts\umamusume\Gallop\Live\StageController.BgColor.cs(62,45): warning CS0649: 从未对字段“StageController._footLightMaterials”赋值，字段将一直保持其默认值 null
+Assets\Scripts\UI\Popup.cs(7,39): warning CS0649: 从未对字段“Popup.Text”赋值，字段将一直保持其默认值 null
+Assets\Scripts\umamusume\Gallop\Live\StageController.BgColor.cs(21,43): warning CS0649: 从未对字段“NeonMaterialInfo._backMaterial”赋值，字段将一直保持其默认值 null
+Assets\Scripts\umamusume\Gallop\Live\Cyalume\CyalumeController3D.cs(29,45): warning CS0649: 从未对字段“CyalumeController3D._mobRootOverride”赋值，字段将一直保持其默认值 null
+Assets\Scripts\Pose\PoseManager.cs(33,9): warning CS0649: 从未对字段“PoseManager._loadFaceBones”赋值，字段将一直保持其默认值 null
+Assets\Scripts\Settings\UISettingsModel.cs(13,37): warning CS0649: 从未对字段“UISettingsModel._openWithTPose”赋值，字段将一直保持其默认值 null
+Assets\Scripts\Pose\PoseManager.cs(31,9): warning CS0649: 从未对字段“PoseManager._loadScale”赋值，字段将一直保持其默认值 null
+Assets\Scripts\umamusume\Gallop\Live\CameraLookAt.cs(26,23): warning CS0649: 从未对字段“CameraLookAt._fieldOfViewLimit”赋值，字段将一直保持其默认值 0
+Assets\Scripts\umamusume\Gallop\Live\CameraLookAt.cs(10,24): warning CS0649: 从未对字段“CameraLookAt._targetCamera”赋值，字段将一直保持其默认值 null
+Assets\Scripts\umamusume\Gallop\Cyspring\CySpringUpdater.cs(66,39): warning CS0649: 从未对字段“CySpringUpdater._debugLog”赋值，字段将一直保持其默认值 false
+Assets\Scripts\umamusume\Gallop\Cyspring\CySpringController.cs(113,26): warning CS0649: 从未对字段“CySpringController._ignoredCySpringRootBoneArray”赋值，字段将一直保持其默认值 null
+Assets\Scripts\Pose\PoseManager.cs(25,9): warning CS0649: 从未对字段“PoseManager._loadRoot”赋值，字段将一直保持其默认值 null
+Assets\Scripts\umamusume\Gallop\Cyspring\CySpringUpdater.cs(57,39): warning CS0649: 从未对字段“CySpringUpdater._autoUpdateInLateUpdate”赋值，字段将一直保持其默认值 false
+Assets\Scripts\umamusume\Gallop\Live\StageController.BgColor.cs(63,53): warning CS0649: 从未对字段“StageController._neonMaterialInfos”赋值，字段将一直保持其默认值 null
+Assets\Scripts\umamusume\Gallop\Live\Cutt\LiveTimeLine\LiveTimelineControl.cs(158,50): warning CS0067: 从不使用事件“LiveTimelineControl.OnUpdateCameraPos”
+Assets\Scripts\umamusume\Gallop\Cyspring\CySpringController.cs(66,48): warning CS0649: 从未对字段“CySpringController._envColArray”赋值，字段将一直保持其默认值 null
+Assets\Scripts\umamusume\Gallop\Live\Director.cs(24,30): warning CS0649: 从未对字段“Director._cameraLookAt”赋值，字段将一直保持其默认值 null
+Assets\Scripts\Exporters\UnityPMXRuntimeLoader\LibMMD\Unity3D\ImageLoader\BitmapLoader.cs(14,16): warning CS0649: 从未对字段“BitmapLoader.BmpPallete.A”赋值，字段将一直保持其默认值 0
+Assets\Scripts\Settings\UISettingsOther.cs(26,25): warning CS0649: 从未对字段“UISettingsOther._updateResVerCoroutine”赋值，字段将一直保持其默认值 null
+Assets\Scripts\umamusume\Gallop\Live\CameraLookAt.cs(15,28): warning CS0649: 从未对字段“CameraLookAt._translateObject”赋值，字段将一直保持其默认值 null
+Assets\Scripts\umamusume\Gallop\Live\Cyalume\CyalumeController3D.cs(32,39): warning CS0649: 从未对字段“CyalumeController3D._mobVerboseLog”赋值，字段将一直保持其默认值 false
+Assets\Scripts\Settings\UISettingsModel.cs(15,37): warning CS0649: 从未对字段“UISettingsModel._lookAtCamera”赋值，字段将一直保持其默认值 null
+Assets\Scripts\Settings\UISettingsModel.cs(12,37): warning CS0649: 从未对字段“UISettingsModel._lockCharacter”赋值，字段将一直保持其默认值 null
+Assets\Scripts\Pose\PoseManager.cs(30,9): warning CS0649: 从未对字段“PoseManager._loadRotation”赋值，字段将一直保持其默认值 null
+Assets\Scripts\umamusume\Gallop\Live\Cutt\LiveTimelineDataList\LiveTimelineBgColor1Data.cs(77,40): warning CS0649: 从未对字段“LiveTimelineBgColor1Data._targetDressIdArray”赋值，字段将一直保持其默认值 null
+Assets\Scripts\UI\Popup.cs(8,37): warning CS0649: 从未对字段“Popup.AcceptButton”赋值，字段将一直保持其默认值 null
+Assets\Scripts\umamusume\Gallop\Live\StageController.BgColor.cs(70,59): warning CS0649: 从未对字段“StageController._bgColorBindingOverrides”赋值，字段将一直保持其默认值 null
+Assets\Scripts\umamusume\Gallop\CharaShaderEffectData.cs(30,31): warning CS0649: 从未对字段“CharaShaderEffectData._settingDataArray”赋值，字段将一直保持其默认值 null
+Assets\Scripts\Settings\UISettingsModel.cs(16,37): warning CS0649: 从未对字段“UISettingsModel._faceOverride”赋值，字段将一直保持其默认值 null
+Assets\Scripts\Settings\UISettingsModel.cs(14,37): warning CS0649: 从未对字段“UISettingsModel._enablePhysics”赋值，字段将一直保持其默认值 null
+Assets\Scripts\Pose\PoseManager.cs(29,9): warning CS0649: 从未对字段“PoseManager._loadPosition”赋值，字段将一直保持其默认值 null
+Assets\Scripts\umamusume\Gallop\Live\CameraLookAt.cs(24,23): warning CS0649: 从未对字段“CameraLookAt._multiplyValue”赋值，字段将一直保持其默认值 0
+Assets\Scripts\umamusume\Gallop\Live\CameraLookAt.cs(21,28): warning CS0649: 从未对字段“CameraLookAt._fovObject”赋值，字段将一直保持其默认值 null
+Assets\Scripts\Manifest\BSVReader.cs(146,25): warning CS0649: 从未对字段“BSVReader.BaseBSVReader.row”赋值，字段将一直保持其默认值 0
+Assets\Scripts\umamusume\Gallop\Live\StageBlinkLightDriver.cs(126,50): warning CS0649: 从未对字段“StageBlinkLightDriver.BlinkRootRuntime.key”赋值，字段将一直保持其默认值 null
+Assets\Scripts\umamusume\Gallop\Live\CameraLookAt.cs(28,28): warning CS0649: 从未对字段“CameraLookAt._cameraMotionObject”赋值，字段将一直保持其默认值 null
+Assets\Scripts\umamusume\Gallop\Live\Cyalume\CyalumeController3D.cs(14,39): warning CS0649: 从未对字段“CyalumeController3D._autoSetupOnStart”赋值，字段将一直保持其默认值 false
+Assets\Scripts\Pose\PoseManager.cs(34,9): warning CS0649: 从未对字段“PoseManager._loadPhysics”赋值，字段将一直保持其默认值 null
+Assets\Scripts\UI\Popup.cs(10,44): warning CS0649: 从未对字段“Popup.PopupBody”赋值，字段将一直保持其默认值 null
+Assets\Scripts\umamusume\Gallop\Live\MirrorReflection.cs(55,35): warning CS0414: 字段“MirrorReflection._legacyBuiltInFallback”已被赋值，但从未使用过它的值
+Assets\Scripts\umamusume\Gallop\RenderPipeline\ScreenOverlayRender.cs(202,26): warning CS0414: 字段“ScreenOverlayRender.Parameter._isUVMovieNoScale”已被赋值，但从未使用过它的值
+Assets\Scripts\umamusume\Gallop\Live\StageController.cs(35,39): warning CS0414: 字段“StageController._autoAddBlinkDriver”已被赋值，但从未使用过它的值
+Assets\Scripts\umamusume\Gallop\Live\StageController.cs(24,13): warning CS0414: 字段“StageController._logEvery”已被赋值，但从未使用过它的值
+Assets\Scripts\umamusume\Gallop\Live\StageController.cs(25,13): warning CS0414: 字段“StageController._logCount”已被赋值，但从未使用过它的值
+Assets\Scripts\umamusume\Gallop\Live\LiveFlashController.cs(55,39): warning CS0414: 字段“LiveFlashController._isVertical”已被赋值，但从未使用过它的值
+Assets\Scripts\umamusume\Gallop\RenderPipeline\ShaderManager.cs(455,29): warning CS0414: 字段“ShaderManager._isWarmupRequest”已被赋值，但从未使用过它的值

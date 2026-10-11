@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Text.RegularExpressions;
@@ -204,6 +204,10 @@ namespace Gallop.Live
             public UnityLensFlareController unityLensFlareController;
             public Material material;
 
+            // 实例化后的材质槽缓存。renderer.materials 每次访问都会克隆一整份 Material[]，
+            // 而实例化材质在首次访问后就固定不变，所以建缓存时取一次即可。
+            public Material[] cachedInstanceMaterials;
+
             public bool isWashLight;
             public bool isWashLightProjection;
 
@@ -294,6 +298,32 @@ namespace Gallop.Live
         {
             return !string.IsNullOrEmpty(name) &&
                    name.IndexOf("ledlight", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        // 天空/草地由 BgColor 管线负责。名称或材质名含 sky、cmn_sky、sky_base、sky_grad、grass、grassy 的 Renderer
+        // 不得进入闪灯缓存，Off 时也不得改 enabled。
+        internal static bool IsProtectedEnvironmentRenderer(Renderer r)
+        {
+            if (r == null) return false;
+            if (NameLooksLikeEnvironment(r.name)) return true;
+            if (r.gameObject != null && NameLooksLikeEnvironment(r.gameObject.name)) return true;
+
+            var mats = r.sharedMaterials;
+            if (mats == null) return false;
+            for (int i = 0; i < mats.Length; i++)
+            {
+                var m = mats[i];
+                if (m != null && NameLooksLikeEnvironment(m.name))
+                    return true;
+            }
+            return false;
+        }
+
+        internal static bool NameLooksLikeEnvironment(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            return name.IndexOf("sky", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("grass", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private static IndexToken InvalidToken()
@@ -630,12 +660,16 @@ namespace Gallop.Live
                 var r = t.GetComponent<Renderer>();
                 if (r != null)
                 {
+                    // 只收闪灯树里的 light 编号节点，排除天空/草地，不用 _MulColor0 全台扫描。
+                    if (IsProtectedEnvironmentRenderer(r))
+                        continue;
                     bool isBlinkSimple, isUvAlphaMask, isLightAdd1, hasColorPowerMultiply, isLightBlinkBlend;
                     DetectType(r, out isBlinkSimple, out isUvAlphaMask, out isLightAdd1, out hasColorPowerMultiply, out isLightBlinkBlend);
 
                     var wash = go.GetComponent<WashLightController>();
                     var flare = go.GetComponent<UnityLensFlareController>();
                     var runtimeMat = r.material;
+                    var instanceMats = r.materials;
                     var mats = r.sharedMaterials;
                     pendingRenderers.Add(new RendererEntry
                     {
@@ -656,6 +690,7 @@ namespace Gallop.Live
                         washLightController = wash,
                         unityLensFlareController = flare,
                         material = runtimeMat,
+                        cachedInstanceMaterials = instanceMats,
                         isWashLight = false,
                         isWashLightProjection = false,
                         useLightBlendMode = false,
@@ -869,6 +904,12 @@ namespace Gallop.Live
                 var e = rc.renderers[i];
                 var r = e.r;
                 if (r == null)
+                {
+                    rc.dirty = true;
+                    continue;
+                }
+
+                if (IsProtectedEnvironmentRenderer(r))
                 {
                     rc.dirty = true;
                     continue;
@@ -1266,6 +1307,13 @@ namespace Gallop.Live
                     continue;
                 }
 
+                // Off 只关闪灯，不碰天空/草地的 renderer.enabled。
+                if (IsProtectedEnvironmentRenderer(r))
+                {
+                    rc.dirty = true;
+                    continue;
+                }
+
                 r.enabled = true;
 
                 EnsureLightBlinkBlendState(r, ref e,(int)fallbackLightBlendMode);
@@ -1387,7 +1435,14 @@ namespace Gallop.Live
             // if (e.blendConfigured && e.blendConfiguredMode == modeId)
             //     return;
 
-            var mats = r.materials;
+            // 这个方法每帧都会被调用（blend 模式必须每帧重申）。此前每帧访问 r.materials，
+            // 等于每帧、每个 Renderer 克隆一份 Material[] —— 这是明确的托管分配热点。
+            // 实例化材质在 BuildRootCache 里已经取过一次且之后不再变化，直接用缓存；
+            // 缓存缺失时才回退到 r.materials，保证行为不变。
+            Material[] mats = e.cachedInstanceMaterials;
+            if (mats == null || mats.Length == 0)
+                mats = r.materials;
+
             if (mats == null || mats.Length == 0)
                 return;
 
