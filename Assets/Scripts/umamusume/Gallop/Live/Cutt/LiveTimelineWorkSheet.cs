@@ -99,7 +99,8 @@ namespace Gallop.Live.Cutt
         InitialHeightFace = 17,
         InitialHeightChest = 18,
         InitialHeightWaist = 19,
-        Max = 20
+        StartFrameFace = 20,
+        Max = 21
     }
 
     public enum LiveCameraCullingLayer
@@ -165,6 +166,26 @@ namespace Gallop.Live.Cutt
         public LiveCameraBgColorType BgColorType;
         public Color BgColor;
         public int BgColorTargetCharacterIndex;
+
+        /// <summary>
+        /// 是否启用背景色属性标记位（0x40000）
+        /// </summary>
+        private const int ATTR_ENABLE_BG_COLOR = 0x40000;
+
+        /// <summary>
+        /// 是否启用了相机自定义背景色覆盖
+        /// </summary>
+        public bool IsEnabledBgColor => ((int)attribute & ATTR_ENABLE_BG_COLOR) != 0;
+
+        /// <summary>
+        /// 获取当前关键帧配置的相机背景颜色
+        /// 参考官方 LiveTimelineKeyCameraPositionData.GetBgColor 实现
+        /// </summary>
+        /// <returns>相机背景色</returns>
+        public Color GetBgColor()
+        {
+            return BgColor;
+        }
 
         public Vector3 offset = Vector3.zero;
 
@@ -274,28 +295,72 @@ namespace Gallop.Live.Cutt
             return GetCullingMask(defCameraCullingLayer);
         }
 
+        [NonSerialized]
+        public Vector3 CharaPositionAtStartFrame;
+
         public virtual Vector3 GetValue(LiveTimelineControl timelineControl)
         {
-            return GetValue(timelineControl, setType, containOffset: true);
+            return GetValue(timelineControl, setType);
         }
 
-        protected virtual Vector3 GetValue(LiveTimelineControl timelineControl, LiveCameraPositionType type, bool containOffset)
+        private Vector3 GetValue(LiveTimelineControl timelineControl, LiveCameraPositionType type)
         {
-            Vector3 vector = position;
-            switch (type)
+            if (type == LiveCameraPositionType.Direct)
             {
-                case LiveCameraPositionType.Direct:
-                    vector += posDirect;
-                    break;
-                case LiveCameraPositionType.Character:
-                    vector += timelineControl.GetPositionWithCharacters(charaRelativeBase, charaRelativeParts, charaPos);
-                    break;
+                return position;
             }
-            if (!containOffset)
+
+            if (type != LiveCameraPositionType.Character)
             {
-                return vector;
+                return position;
             }
-            return vector + offset;
+
+            if (charaRelativeParts == LiveCameraCharaParts.StartFrameFace)
+            {
+                if (frame != (timelineControl != null ? timelineControl.CurrentCameraPosKeyFrame : 0))
+                {
+                    CharaPositionAtStartFrame =
+                        timelineControl != null
+                            ? timelineControl.GetPositionWithCharacters(
+                                charaRelativeBase,
+                                LiveCameraCharaParts.Face)
+                            : Vector3.zero;
+                }
+
+                return position + CharaPositionAtStartFrame;
+            }
+
+            return LiveTimelineKeyCameraLookAtData.GetCharacterWorldPos(
+                timelineControl,
+                charaRelativeBase,
+                charaRelativeParts,
+                charaPos,
+                position,
+                false,
+                0,
+                0);
+        }
+
+        public bool GetLayerOffset(LiveTimelineControl timelineControl, out Vector3 layerOffset)
+        {
+            layerOffset = Vector3.zero;
+
+            if (setType != LiveCameraPositionType.Character)
+            {
+                return false;
+            }
+
+            if (timelineControl == null)
+            {
+                return false;
+            }
+
+            return LiveTimelineControl.GetCameraLayerOffset(
+                timelineControl,
+                charaRelativeBase,
+                timelineControl.CameraLayerOffsetMin,
+                timelineControl.CameraLayerOffsetDiff,
+                out layerOffset);
         }
 
         public int GetBezierPointCount()
@@ -428,8 +493,9 @@ namespace Gallop.Live.Cutt
         [SerializeField] public LiveTimelineKeyCameraPositionDataList cameraPosKeys;
         [SerializeField] public List<LiveTimelineMultiCameraPositionData> multiCameraPosKeys;
         [SerializeField] public List<LiveTimelineMultiCameraLookAtData> multiCameraLookAtKeys;
+        [SerializeField] public List<LiveTimelineMultiCameraLayerData> multiCameraLayerKeys = new List<LiveTimelineMultiCameraLayerData>();
 
-        //[SerializeField]���ڸ����ڱ�Ľű��ﶨ���ʱ��
+        //[SerializeField]ڸڱĽűﶨʱ
         [SerializeField] public LiveTimelineKeyCameraLookAtDataList cameraLookAtKeys;
         [SerializeField] public LiveTimelineKeyCameraFovDataList cameraFovKeys;
         [SerializeField] public LiveTimelineKeyCameraRollDataList cameraRollKeys;
@@ -464,30 +530,61 @@ namespace Gallop.Live.Cutt
 
         [SerializeField] public List<LiveTimelineTransformData> transformList;
         [SerializeField] public List<LiveTimelineObjectData> objectList;
+        [SerializeField] public List<LiveTimelinePropsData> propsList = new List<LiveTimelinePropsData>();
+        [SerializeField] public List<LiveTimelinePropsAttachData> propsAttachList = new List<LiveTimelinePropsAttachData>();
         [SerializeField] public List<LiveTimelineMobCyalumeControlData> mobControlList;
         [SerializeField] public List<LiveTimelineMobCyalumeControlData> cyalumeControlList;
 
-        /*
-		//���ڿ��Ե���AB���ˣ���Ȼ���淢��ûʲô��...˵����ʲôʱ�����õ�
-		private void Start()
-		{
-			LoadCharaMotion();
-		}
+        /// <summary>
+        /// 批量预解析并绑定时间轴工作表中的角色动作剪辑 (AnimationClip)
+        /// 遍历所有角色动作序列关键帧，当 key.clip、clip2、clip3 缺失且存在对应 motionName 时，
+        /// 调用 LiveTimelineMotionClipResolver 进行动态嗅探与预绑定。
+        /// </summary>
+        /// <param name="musicId">当前 Live 歌曲编号（用于匹配 son{musicId} 专属动作包）</param>
+        public void ResolveCharaMotions(int musicId = 0)
+        {
+            if (charaMotSeqList == null || charaMotSeqList.Count == 0)
+            {
+                return;
+            }
 
-		public void LoadCharaMotion()
-		{
-			foreach(LiveTimelineCharaMotSeqData liveCharaData in charaMotSeqList)
-			{
-				foreach(LiveTimelineKeyCharaMotionData charaMotionData in liveCharaData.keys.thisList)
-				{
-					foreach(var motionname in UmaViewerMain.Instance.AbList.Where(a => a.Name.StartsWith("3d/motion/live/body") && a.Name.EndsWith(charaMotionData.motionName)))
-					{
-						//UmaViewerBuilder.Instance.LoadComponent(motionname);
-					}
-				}
-			}
-		}
-		*/
+            for (int i = 0; i < charaMotSeqList.Count; i++)
+            {
+                var charaSeq = charaMotSeqList[i];
+                if (charaSeq == null || charaSeq.keys == null || charaSeq.keys.thisList == null)
+                {
+                    continue;
+                }
+
+                var keyList = charaSeq.keys.thisList;
+                for (int j = 0; j < keyList.Count; j++)
+                {
+                    var key = keyList[j];
+                    if (key == null)
+                    {
+                        continue;
+                    }
+
+                    // 1. 预解析主动作 key.clip
+                    if (key.clip == null && !string.IsNullOrEmpty(key.motionName))
+                    {
+                        key.clip = LiveTimelineMotionClipResolver.ResolveClip(key.motionName, musicId);
+                    }
+
+                    // 2. 预解析次动作 key.clip2（确定性路径，不走主通道的模糊嗅探）
+                    if (key.clip2 == null && !string.IsNullOrEmpty(key.motionName2))
+                    {
+                        key.clip2 = LiveTimelineMotionClipResolver.ResolveClipExact(key.motionName2, musicId);
+                    }
+
+                    // 3. 预解析次动作 key.clip3（确定性路径，不走主通道的模糊嗅探）
+                    if (key.clip3 == null && !string.IsNullOrEmpty(key.motionName3))
+                    {
+                        key.clip3 = LiveTimelineMotionClipResolver.ResolveClipExact(key.motionName3, musicId);
+                    }
+                }
+            }
+        }
     }
 
     public static class LiveCharaPositionFlag_Helper

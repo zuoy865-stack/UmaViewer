@@ -618,7 +618,7 @@ namespace Gallop.Live.Cutt
 
 
 
-        //�޸�(Live�ݳ����������ƺ�λ�ñ任���)
+        //修改(Live演出的显隐控制和位置变换相关)
         public void LateUpdateFormationOffset_Transform(int targetIndex, LiveTimelineKeyIndex curKeyIndex, float time)
         {
             bool ControlMode = UmaViewerUI.Instance != null && UmaViewerUI.Instance.isControlMode;
@@ -1158,7 +1158,7 @@ namespace Gallop.Live.Cutt
             {
                 camera.cacheTransform.position = pos;
 
-                // TODO �����õĻ���CGSS��layerö�٣�Ҫ�����滻
+                // TODO 这里用的还是CGSS的layer枚举，要进行替换
                 /*
                 int num = liveTimelineKeyCameraPositionData.GetCullingMask();
                 if (num == 0)
@@ -1691,6 +1691,7 @@ namespace Gallop.Live.Cutt
             }
         }
 
+        // 角色默认背景色轨道名称集合（保留原有定义作为角色默认参考集合，不在时间轴层硬编码截断其它轨道）
         private HashSet<string> validBgColorNames = new HashSet<string> { "CharaCenter", "CharaLeft", "CharaRight", "CharaColor" };
 
         private void AlterUpdate_BgColor1(LiveTimelineWorkSheet sheet, float currentFrame) {
@@ -1703,16 +1704,15 @@ namespace Gallop.Live.Cutt
                 {
                     continue;
                 }
-                else if (!validBgColorNames.Contains(sheet.bgColor1List[i].name))
-                {
-                    continue;
-                }
+                // 移除原有的白名单硬编码过滤：确保与主时间轴行为一致，使得所有 BgColor1 轨道（包括天空与舞台道具等）都能正常计算并触发事件
                 FindTimelineKey(out var curKey, out var nextKey, keys, currentFrame);
                 if (curKey == null)
                 {
                     continue;
                 }
                 BgColor1UpdateInfo updateInfo = default;
+                // 同步设置轨道名称，以便事件接收端（Director/StageController）能识别对应轨道
+                updateInfo.TimelineName = sheet.bgColor1List[i].name;
                 LiveTimelineKeyBgColor1Data bgColorData = curKey as LiveTimelineKeyBgColor1Data;
                 LiveTimelineKeyBgColor1Data bgColorData2 = nextKey as LiveTimelineKeyBgColor1Data;
                 if (bgColorData2 != null && bgColorData2.interpolateType != 0)
@@ -1725,6 +1725,8 @@ namespace Gallop.Live.Cutt
                     updateInfo.outlineColor = Color.Lerp(bgColorData.outlineColor, bgColorData2.outlineColor, t);
                     updateInfo.outlineColorBlend = bgColorData.outlineColorBlend;
                     updateInfo.Saturation = LerpWithoutClamp(bgColorData.Saturation, bgColorData2.Saturation, t);
+                    // 补全对 colorPower 的实时插值计算，保持与主时间轴行为完全一致
+                    updateInfo.colorPower = (bgColorData != null && bgColorData2 != null) ? Mathf.Lerp(bgColorData.power, bgColorData2.power, t) : (bgColorData != null ? bgColorData.power : 1f);
                 }
                 else
                 {
@@ -1735,8 +1737,9 @@ namespace Gallop.Live.Cutt
                     updateInfo.outlineColor = bgColorData.outlineColor;
                     updateInfo.outlineColorBlend = bgColorData.outlineColorBlend;
                     updateInfo.Saturation = bgColorData.Saturation;
+                    updateInfo.colorPower = bgColorData != null ? bgColorData.power : 1f;
                 }
-                OnUpdateBgColor1.Invoke(ref updateInfo);
+                OnUpdateBgColor1?.Invoke(ref updateInfo);
             }
         }
 

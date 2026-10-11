@@ -177,6 +177,10 @@ namespace Gallop.Live
                 if (renderer == null)
                     continue;
 
+                // 按时间轴材质名匹配 UV 灯，跳过天空/草地，避免改它们的 _MulColor0。
+                if (StageBlinkLightDriver.IsProtectedEnvironmentRenderer(renderer))
+                    continue;
+
                 Material[] materials;
 
                 try
@@ -206,6 +210,8 @@ namespace Gallop.Live
 
                     string key = NormalizeMaterialName(material.name);
                     if (string.IsNullOrEmpty(key))
+                        continue;
+                    if (StageBlinkLightDriver.NameLooksLikeEnvironment(key))
                         continue;
 
                     if (!materialMap.TryGetValue(key, out List<Material> list))

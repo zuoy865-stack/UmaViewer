@@ -46,8 +46,19 @@ public class CyalumeAutoBinder : MonoBehaviour
         if (controller3D == null)
             controller3D = GetComponent<CyalumeController3D>();
 
+        // 避免误拾取到挂在角色模型层级上的控制器
         if (controller3D == null)
-            controller3D = GetComponentInChildren<CyalumeController3D>(true);
+        {
+            var candidates = GetComponentsInChildren<CyalumeController3D>(true);
+            for (int i = 0; i < candidates.Length; i++)
+            {
+                if (candidates[i] != null && !IsCharacterHierarchy(candidates[i].gameObject))
+                {
+                    controller3D = candidates[i];
+                    break;
+                }
+            }
+        }
 
         if (controller3D == null)
         {
@@ -65,8 +76,19 @@ public class CyalumeAutoBinder : MonoBehaviour
         if (playbackProvider == null)
             playbackProvider = GetComponent<CyalumePlaybackProvider>();
 
+        // 避免误拾取到挂在角色模型层级上的提供器
         if (playbackProvider == null)
-            playbackProvider = GetComponentInChildren<CyalumePlaybackProvider>(true);
+        {
+            var candidates = GetComponentsInChildren<CyalumePlaybackProvider>(true);
+            for (int i = 0; i < candidates.Length; i++)
+            {
+                if (candidates[i] != null && !IsCharacterHierarchy(candidates[i].gameObject))
+                {
+                    playbackProvider = candidates[i];
+                    break;
+                }
+            }
+        }
 
         if (playbackProvider == null)
         {
@@ -140,16 +162,157 @@ public class CyalumeAutoBinder : MonoBehaviour
         yield return controller3D.SetupOfficialLike(forceRebuildOnStart);
     }
 
+    /// <summary>
+    /// 解析 CyalumeController3D 的合法宿主 GameObject。
+    /// 严禁绑定在角色模型层级，严格校验 AssetHolder 中是否含有荧光棒资产；
+    /// 若在 stage 和场景中未找到任何符合条件的宿主，默认安全回退到 CyalumeAutoBinder 自身挂载的 GameObject（即 mainLive 根节点）。
+    /// </summary>
     private GameObject ResolveControllerHost()
     {
-        var assetHolder = GetComponent<AssetHolder>();
-        if (assetHolder != null)
-            return assetHolder.gameObject;
+        // 1. 优先检查自身挂载的 AssetHolder
+        var selfHolder = GetComponent<AssetHolder>();
+        if (selfHolder != null && !IsCharacterHierarchy(selfHolder.gameObject) && HasCyalumeAssets(selfHolder))
+        {
+            return selfHolder.gameObject;
+        }
 
-        assetHolder = GetComponentInChildren<AssetHolder>(true);
-        if (assetHolder != null)
-            return assetHolder.gameObject;
+        // 2. 检查子物体中的所有 AssetHolder（舞台 Stage 通常挂在 mainLive 的子层级）
+        var childHolders = GetComponentsInChildren<AssetHolder>(true);
+        if (childHolders != null)
+        {
+            for (int i = 0; i < childHolders.Length; i++)
+            {
+                var holder = childHolders[i];
+                if (holder == null || holder.gameObject == null)
+                    continue;
 
+                // 严格过滤角色模型层级
+                if (IsCharacterHierarchy(holder.gameObject))
+                    continue;
+
+                // 校验是否真正含有荧光棒资产条目
+                if (HasCyalumeAssets(holder))
+                    return holder.gameObject;
+            }
+        }
+
+        // 3. 在场景所有对象中查找符合条件的 AssetHolder（针对舞台对象未作为子节点的边缘情况）
+        var sceneHolders = FindObjectsOfType<AssetHolder>(true);
+        if (sceneHolders != null)
+        {
+            for (int i = 0; i < sceneHolders.Length; i++)
+            {
+                var holder = sceneHolders[i];
+                if (holder == null || holder.gameObject == null)
+                    continue;
+
+                if (IsCharacterHierarchy(holder.gameObject))
+                    continue;
+
+                if (HasCyalumeAssets(holder))
+                    return holder.gameObject;
+            }
+        }
+
+        // 4. 如果在 stage 和场景中未找到任何符合条件的宿主，默认安全回退到 CyalumeAutoBinder 自身挂载的 GameObject（即 mainLive 根节点）
+        if (verboseLog)
+        {
+            Debug.Log("[CyalumeAutoBinder] 未在舞台或场景中找到合法荧光棒 AssetHolder，安全回退至 mainLive 根节点。");
+        }
         return gameObject;
+    }
+
+    /// <summary>
+    /// 严格过滤角色模型层级：
+    /// 严禁在名字包含 pfb_bdy、pfb_hed、pfb_hair、pfb_chr，或者所属 GameObject/父级挂有 UmaContainerCharacter 的对象上绑定 CyalumeController3D。
+    /// </summary>
+    private static bool IsCharacterHierarchy(GameObject go)
+    {
+        if (go == null)
+            return true;
+
+        // 检查所属 GameObject 或其任意祖先节点是否挂有 UmaContainerCharacter
+        if (go.GetComponentInParent<UmaContainerCharacter>() != null)
+            return true;
+
+        // 检查自身名称是否包含角色部件关键字
+        string name = go.name;
+        if (!string.IsNullOrEmpty(name))
+        {
+            if (name.IndexOf("pfb_bdy", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                name.IndexOf("pfb_hed", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                name.IndexOf("pfb_hair", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                name.IndexOf("pfb_chr", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return true;
+            }
+        }
+
+        // 逐级向上检查祖先节点名称是否包含角色部件关键字
+        Transform current = go.transform.parent;
+        while (current != null)
+        {
+            string parentName = current.name;
+            if (!string.IsNullOrEmpty(parentName))
+            {
+                if (parentName.IndexOf("pfb_bdy", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    parentName.IndexOf("pfb_hed", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    parentName.IndexOf("pfb_hair", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    parentName.IndexOf("pfb_chr", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return true;
+                }
+            }
+            current = current.parent;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// 校验 AssetHolder 真实内容：
+    /// 检查其 _assetTable 中的 key 或 candidate 名称是否包含 "default"、"random"、"cyalume"，
+    /// 只有确认包含荧光棒条目的 AssetHolder 才视为合法宿主。
+    /// </summary>
+    private static bool HasCyalumeAssets(AssetHolder holder)
+    {
+        if (holder == null || holder._assetTable == null || holder._assetTable.list == null)
+            return false;
+
+        for (int i = 0; i < holder._assetTable.list.Count; i++)
+        {
+            var pair = holder._assetTable.list[i];
+            if (pair == null)
+                continue;
+
+            // 检查 Key 名称是否包含关键词
+            string keyText = pair.Key != null ? pair.Key.ToString() : string.Empty;
+            if (!string.IsNullOrEmpty(keyText))
+            {
+                if (keyText.IndexOf("default", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    keyText.IndexOf("random", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    keyText.IndexOf("cyalume", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return true;
+                }
+            }
+
+            // 检查候选资源对象 (GameObject 等) 的名称是否包含关键词
+            if (pair.Value != null)
+            {
+                string valueName = pair.Value.name;
+                if (!string.IsNullOrEmpty(valueName))
+                {
+                    if (valueName.IndexOf("default", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        valueName.IndexOf("random", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        valueName.IndexOf("cyalume", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
     }
 }

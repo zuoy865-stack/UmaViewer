@@ -80,11 +80,14 @@ namespace Gallop.Live
 
             if (!TryResolveStageObject(raw, out var go) || go == null) return;
 
-            // 这里用 local*，因为 timeline 给的是局部变换（和你贴的 AlterUpdate_TransformControl 一致）
+            // 增加条件守卫：仅当各维度使能标志为 true 时才应用对应的局部变换，杜绝无条件覆盖造成的位姿破坏
             var tr = go.transform;
-            tr.localPosition = info.updateData.position;
-            tr.localRotation = info.updateData.rotation;
-            tr.localScale    = info.updateData.scale;
+            if (info.data.enablePosition)
+                tr.localPosition = info.updateData.position;
+            if (info.data.enableRotate)
+                tr.localRotation = info.updateData.rotation;
+            if (info.data.enableScale)
+                tr.localScale = info.updateData.scale;
 
             if (debugPrint && ShouldDebug(raw))
             {

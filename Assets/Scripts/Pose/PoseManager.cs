@@ -105,22 +105,39 @@ public class PoseManager : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 设置姿态模式提示框文本。包含完整的多层空检查与边界保护，杜绝任何场景切换或热重载时报 NullReferenceException。
+    /// </summary>
     public static void SetTooltip(int panelId, string text)
     {
-        UmaViewerUI.Instance.PoseManager.TooltipLabels[panelId].text = text;
+        var ui = UmaViewerUI.Instance;
+        if (ui == null) return;
+        var pm = ui.PoseManager;
+        if (pm == null || pm.TooltipLabels == null) return;
+        if (panelId >= 0 && panelId < pm.TooltipLabels.Length && pm.TooltipLabels[panelId] != null)
+        {
+            pm.TooltipLabels[panelId].text = text;
+        }
     }
 
     public void EnablePoseMode()
     {
         if (PoseModeOn) return;
 
-        var modelSettings = UmaViewerUI.Instance.ModelSettings;
+        var ui = UmaViewerUI.Instance;
+        var modelSettings = ui != null ? ui.ModelSettings : null;
         var builder = UmaViewerBuilder.Instance;
-        modelSettings.SetEyeTrackingEnable(false);
-        modelSettings.SetDynamicBoneEnable(false);
-        HandleCanvas.SetActive(true);
+        if (modelSettings != null)
+        {
+            modelSettings.SetEyeTrackingEnable(false);
+            modelSettings.SetDynamicBoneEnable(false);
+        }
+        if (HandleCanvas != null)
+        {
+            HandleCanvas.SetActive(true);
+        }
 
-        if (builder.CurrentUMAContainer && builder.CurrentUMAContainer.UmaAnimator)
+        if (builder != null && builder.CurrentUMAContainer && builder.CurrentUMAContainer.UmaAnimator)
         {
             PoseIK = builder.CurrentUMAContainer.CreatePoseIK();
             builder.CurrentUMAContainer.UmaAnimator.enabled = false;
@@ -135,13 +152,20 @@ public class PoseManager : MonoBehaviour
 
         UIPoseContainer.CreateBackupFromScene();
 
-        var modelSettings = UmaViewerUI.Instance.ModelSettings;
+        var ui = UmaViewerUI.Instance;
+        var modelSettings = ui != null ? ui.ModelSettings : null;
         var builder = UmaViewerBuilder.Instance;
-        modelSettings.SetEyeTrackingEnable(true);
-        modelSettings.SetDynamicBoneEnable(true);
-        HandleCanvas.SetActive(false);
+        if (modelSettings != null)
+        {
+            modelSettings.SetEyeTrackingEnable(true);
+            modelSettings.SetDynamicBoneEnable(true);
+        }
+        if (HandleCanvas != null)
+        {
+            HandleCanvas.SetActive(false);
+        }
 
-        if (builder.CurrentUMAContainer != null && builder.CurrentUMAContainer.UmaAnimator != null)
+        if (builder != null && builder.CurrentUMAContainer != null && builder.CurrentUMAContainer.UmaAnimator != null)
         {
             builder.CurrentUMAContainer.UmaAnimator.enabled = true;
         }

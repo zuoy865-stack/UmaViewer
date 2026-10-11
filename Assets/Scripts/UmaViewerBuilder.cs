@@ -1,4 +1,4 @@
-﻿using CriWareFormats;
+using CriWareFormats;
 using Gallop;
 using Gallop.Live;
 using NAudio.Wave;
@@ -15,9 +15,24 @@ using UnityEngine.SceneManagement;
 using Debug = UnityEngine.Debug;
 using Random = UnityEngine.Random;
 
-public class UmaViewerBuilder : MonoBehaviour
+public partial class UmaViewerBuilder : MonoBehaviour
 {
-    public static UmaViewerBuilder Instance;
+    private static UmaViewerBuilder _instance;
+    /// <summary>
+    /// 全局构建器单例。支持在 Unity 域重载后静态数据丢失时自动从场景找回活跃实例自愈。
+    /// </summary>
+    public static UmaViewerBuilder Instance
+    {
+        get
+        {
+            if (_instance == null)
+            {
+                _instance = FindObjectOfType<UmaViewerBuilder>();
+            }
+            return _instance;
+        }
+        set => _instance = value;
+    }
     static UmaViewerMain Main => UmaViewerMain.Instance;
     static UmaViewerUI UI => UmaViewerUI.Instance;
     static UISettingsModel ModelSettings => UmaViewerUI.Instance.ModelSettings;
@@ -29,20 +44,11 @@ public class UmaViewerBuilder : MonoBehaviour
 
     public UmaHeadData CurrentHead;
 
-    public List<AudioSource> CurrentAudioSources = new List<AudioSource>();
-    public List<UmaLyricsData> CurrentLyrics = new List<UmaLyricsData>();
-
-    // Used for keeping track for exports
-    public List<UmaDatabaseEntry> CurrentLiveSoundAWB = new List<UmaDatabaseEntry>();
-    public int CurrentLiveSoundAWBIndex = -1;
-
     public AnimatorOverrideController OverrideController;
     public AnimatorOverrideController FaceOverrideController;
     public AnimatorOverrideController CameraOverrideController;
     public Animator AnimationCameraAnimator;
     public Camera AnimationCamera;
-
-    public GameObject LiveControllerPrefab;
 
 // ---- Normal (non-mob, non-mini) costume visibility options ----
 public enum NormalCostumeHideMode
@@ -66,7 +72,15 @@ public string[] NormalBodyKeywords  = new[] { "skin", "body", "bdy", "face", "he
 
     private void Awake()
     {
-        Instance = this;
+        _instance = this;
+    }
+
+    private void OnDestroy()
+    {
+        if (_instance == this)
+        {
+            _instance = null;
+        }
     }
 
     public IEnumerator LoadUma(CharaEntry chara, string costumeId, bool mini, string haedCostumeId = "")
@@ -99,42 +113,7 @@ public string[] NormalBodyKeywords  = new[] { "skin", "body", "bdy", "face", "he
         yield break;
     }
 
-    public void LoadLiveUma(List<LiveCharacterLoadData> characters)
-    {
-        for (int i = 0; i < characters.Count; i++)
-        {
-            if (characters[i].CharaEntry.Name != "")
-            {
-                var umaContainer = new GameObject($"Chara_{characters[i].CharaEntry.Id}_{characters[i].CostumeId}").AddComponent<UmaContainerCharacter>();
-                umaContainer.IsLive = true;
-                umaContainer.CharaData = UmaDatabaseController.ReadCharaData(characters[i].CharaEntry);
-                var charObjs = Gallop.Live.Director.instance.charaObjs;
-                umaContainer.transform.parent = charObjs[i];
-                umaContainer.transform.localPosition = new Vector3();
-
-                if (characters[i].CharaEntry.IsMob)
-                {
-                    LoadMobUma(umaContainer, characters[i].CharaEntry, characters[i].CostumeId);
-                }
-                else
-                {
-                    LoadNormalUma(umaContainer, characters[i].CharaEntry, characters[i].CostumeId, false, characters[i].HeadCostumeId);
-                }
-
-                if (umaContainer.UmaAnimator != null)
-                {
-                    umaContainer.UmaAnimator.enabled = false;
-                    umaContainer.isAnimatorControl = false;
-                }
-
-                umaContainer.ConfigureLivePhysics();
-
-                Gallop.Live.Director.instance.CharaContainerScript.Add(umaContainer);
-            }
-        }
-    }
-
-    private void LoadNormalUma(UmaContainerCharacter umaContainer, CharaEntry chara, string costumeId, bool loadMotion = false, string haedCostumeId = "")
+private void LoadNormalUma(UmaContainerCharacter umaContainer, CharaEntry chara, string costumeId, bool loadMotion = false, string haedCostumeId = "")
     {
         int id = chara.Id;
         umaContainer.CharaEntry = chara;
@@ -182,51 +161,9 @@ public string[] NormalBodyKeywords  = new[] { "skin", "body", "bdy", "face", "he
         }
         else if (genericCostume)
         {
-            string texPattern1 = "", texPattern2 = "", texPattern3 = "", texPattern4 = "", texPattern5 = "";
-            switch (costumeId.Split('_')[0])
-            {
-                case "0001":
-                    texPattern1 = $"tex_bdy{costumeIdShort}_00_{skin}_{bust}_0{socks}";
-                    texPattern2 = $"tex_bdy{costumeIdShort}_00_0_{bust}";
-                    texPattern3 = $"tex_bdy{costumeIdShort}_zekken";
-                    texPattern4 = $"tex_bdy{costumeIdShort}_00_waku";
-                    texPattern5 = $"tex_bdy{costumeIdShort}_num";
-                    break;
-                case "0003":
-                    texPattern1 = $"tex_bdy{costumeIdShort}_00_{skin}_{bust}";
-                    texPattern2 = $"tex_bdy{costumeIdShort}_00_0_{bust}";
-                    break;
-                case "0006": //last var is color?
-                    texPattern1 = $"tex_bdy{costumeId}_{skin}_{bust}_0{0}";
-                    texPattern2 = $"tex_bdy{costumeId}_0_{bust}_00_";
-                    break;
-                default:
-                    texPattern1 = $"tex_bdy{costumeId}_{skin}_{bust}";
-                    texPattern2 = $"tex_bdy{costumeId}_0_{bust}";
-                    break;
-            }
-            Debug.Log(texPattern1 + " " + texPattern2);
-            //Load Body Textures
-            foreach (var asset1 in UmaViewerMain.Instance.AbChara.Where(a => a.Name.StartsWith(UmaDatabaseController.BodyPath)
-                && (a.Name.Contains(texPattern1)
-                || a.Name.Contains(texPattern2)
-                || (string.IsNullOrEmpty(texPattern3) ? false : a.Name.Contains(texPattern3))
-                || (string.IsNullOrEmpty(texPattern4) ? false : a.Name.Contains(texPattern4))
-                || (string.IsNullOrEmpty(texPattern5) ? false : a.Name.Contains(texPattern5)))))
-            {
-                umaContainer.LoadTextures(asset1);
-            }
-            //Load Body
+            LoadGenericBodyTextures(umaContainer, costumeId, costumeIdShort, skin, bust, socks);
             umaContainer.LoadBody(asset);
-
-            //Load Physics
-            if (Main.AbList.TryGetValue(UmaDatabaseController.BodyPath + $"bdy{costumeIdShort}/clothes/pfb_bdy{costumeIdShort}_cloth00", out _))
-            {
-                var asset1 = Main.AbList[UmaDatabaseController.BodyPath + $"bdy{costumeIdShort}/clothes/pfb_bdy{costumeIdShort}_cloth00"];
-                umaContainer.LoadPhysics(asset1);
-                asset1 = Main.AbList[UmaDatabaseController.BodyPath + $"bdy{costumeIdShort}/clothes/pfb_bdy{costumeIdShort}_bust{bust}_cloth00"];
-                umaContainer.LoadPhysics(asset1);
-            }
+            LoadGenericBodyPhysics(umaContainer, costumeIdShort, bust);
         }
         else
         {
@@ -290,11 +227,7 @@ public string[] NormalBodyKeywords  = new[] { "skin", "body", "bdy", "face", "he
             // Load head CySpring physics.
             //角色实际加载了哪个头，就必须加载同一个头目录下的 cloth。
             string actualHeadCostumeId = isDefaultHead ? "00" : head_costumeId;
-
-            string headClothPath =
-                UmaDatabaseController.HeadPath +
-                $"chr{head_id}_{actualHeadCostumeId}/clothes/" +
-                $"pfb_chr{head_id}_{actualHeadCostumeId}_cloth00";
+            string headClothPath = $"{UmaDatabaseController.HeadPath}chr{head_id}_{actualHeadCostumeId}/clothes/pfb_chr{head_id}_{actualHeadCostumeId}_cloth00";
 
             if (Main.AbList.TryGetValue(headClothPath, out UmaDatabaseEntry headClothAsset))
             {
@@ -303,20 +236,14 @@ public string[] NormalBodyKeywords  = new[] { "skin", "body", "bdy", "face", "he
             }
             else
             {
-                string message =
-                    $"[UmaViewerBuilder] Head CySpring physics not found: {headClothPath}";
+                string message = $"[UmaViewerBuilder] Head CySpring physics not found: {headClothPath}";
                 Debug.LogError(message);
                 // CySpring 缺失会继续加载角色，但必须通过用户界面的错误级别提示用户。
-                UmaViewerUI.Instance?.ShowMessage(
-                    $"Head CySpring physics not found:\n{headClothPath}",
-                    UIMessageType.Error
-                );
+                UmaViewerUI.Instance?.ShowMessage($"Head CySpring physics not found:\n{headClothPath}", UIMessageType.Error);
             }
         }
 
-
-
-        //修改(载入专用尾巴相关)
+//修改(载入专用尾巴相关)
         if (tailId > 0)
         {
             string costumePrefixForTail = $"{id}_{costumeId}";
@@ -363,9 +290,7 @@ public string[] NormalBodyKeywords  = new[] { "skin", "body", "bdy", "face", "he
             }
         }
 
-
-
-        umaContainer.LoadPhysics();
+umaContainer.LoadPhysics();
         umaContainer.SetDynamicBoneEnable(ModelSettings.DynamicBoneEnable);
         umaContainer.LoadFaceMorph(id, costumeId);
         umaContainer.TearControllers.ForEach(a => a.SetDir(a.CurrentDir));
@@ -387,13 +312,11 @@ public string[] NormalBodyKeywords  = new[] { "skin", "body", "bdy", "face", "he
             }
         }
 
-
-        //修改(载入通用服装ColorSet相关)
+//修改(载入通用服装ColorSet相关)
         UI.ClearColorSetButtons();
         UI.LoadColorSetButtons();
 
-
-    }
+}
 
     private void LoadMobUma(UmaContainerCharacter umaContainer, CharaEntry chara, string costumeId, int bodyid = -1, bool loadMotion = false)
     {
@@ -454,52 +377,9 @@ public string[] NormalBodyKeywords  = new[] { "skin", "body", "bdy", "face", "he
         }
         else if (genericCostume)
         {
-            string texPattern1 = "", texPattern2 = "", texPattern3 = "", texPattern4 = "", texPattern5 = "";
-            switch (costumeId.Split('_')[0])
-            {
-                case "0001":
-                    texPattern1 = $"tex_bdy{costumeIdShort}_00_{skin}_{bust}_0{socks}";
-                    texPattern2 = $"tex_bdy{costumeIdShort}_00_0_{bust}";
-                    texPattern3 = $"tex_bdy{costumeIdShort}_zekken";
-                    texPattern4 = $"tex_bdy{costumeIdShort}_00_waku";
-                    texPattern5 = $"tex_bdy{costumeIdShort}_num";
-                    break;
-                case "0003":
-                    texPattern1 = $"tex_bdy{costumeIdShort}_00_{skin}_{bust}";
-                    texPattern2 = $"tex_bdy{costumeIdShort}_00_0_{bust}";
-                    break;
-                case "0006": //last var is color?
-                    texPattern1 = $"tex_bdy{costumeId}_{skin}_{bust}_0{0}";
-                    texPattern2 = $"tex_bdy{costumeId}_0_{bust}_00_";
-                    break;
-                default:
-                    texPattern1 = $"tex_bdy{costumeId}_{skin}_{bust}";
-                    texPattern2 = $"tex_bdy{costumeId}_0_{bust}";
-                    break;
-            }
-            Debug.Log(texPattern1 + " " + texPattern2);
-            //Load Body Textures
-            foreach (var asset1 in UmaViewerMain.Instance.AbChara.Where(a => a.Name.StartsWith(UmaDatabaseController.BodyPath)
-                && (a.Name.Contains(texPattern1)
-                || a.Name.Contains(texPattern2)
-                || (string.IsNullOrEmpty(texPattern3) ? false : a.Name.Contains(texPattern3))
-                || (string.IsNullOrEmpty(texPattern4) ? false : a.Name.Contains(texPattern4))
-                || (string.IsNullOrEmpty(texPattern5) ? false : a.Name.Contains(texPattern5)))))
-            {
-                umaContainer.LoadTextures(asset1);
-            }
-
-            //Load Body
+            LoadGenericBodyTextures(umaContainer, costumeId, costumeIdShort, skin, bust, socks);
             umaContainer.LoadBody(asset);
-
-            //Load Physics
-            if (Main.AbList.TryGetValue(UmaDatabaseController.BodyPath + $"bdy{costumeIdShort}/clothes/pfb_bdy{costumeIdShort}_cloth00", out _))
-            {
-                var asset1 = Main.AbList[UmaDatabaseController.BodyPath + $"bdy{costumeIdShort}/clothes/pfb_bdy{costumeIdShort}_cloth00"];
-                umaContainer.LoadPhysics(asset1);
-                asset1 = Main.AbList[UmaDatabaseController.BodyPath + $"bdy{costumeIdShort}/clothes/pfb_bdy{costumeIdShort}_bust{bust}_cloth00"];
-                umaContainer.LoadPhysics(asset1);
-            }
+            LoadGenericBodyPhysics(umaContainer, costumeIdShort, bust);
         }
         else
         {
@@ -531,8 +411,7 @@ public string[] NormalBodyKeywords  = new[] { "skin", "body", "bdy", "face", "he
         Main.AbList.TryGetValue(hair, out UmaDatabaseEntry hairasset);
         bool isDefaultHead = true;
 
-
-        if (asset != null && hairasset != null)
+if (asset != null && hairasset != null)
         {
             //Load Face And Hair Textures
             foreach (var asset1 in UmaViewerMain.Instance.AbChara.Where(a => a.Name.StartsWith($"{UmaDatabaseController.HeadPath}chr{head_s}_{head_costumeId}/textures")))
@@ -575,41 +454,22 @@ public string[] NormalBodyKeywords  = new[] { "skin", "body", "bdy", "face", "he
             else
             {
                 // 部分资源可能使用普通 cloth00，而不是 hairXXX_cloth00。
-                string fallbackHeadClothPath =
-                    $"{UmaDatabaseController.HeadPath}" +
-                    $"chr{head_s}_{head_costumeId}/clothes/" +
-                    $"pfb_chr{head_s}_{head_costumeId}_cloth00";
+                string fallbackHeadClothPath = $"{UmaDatabaseController.HeadPath}chr{head_s}_{head_costumeId}/clothes/pfb_chr{head_s}_{head_costumeId}_cloth00";
 
-                if (Main.AbList.TryGetValue(
-                        fallbackHeadClothPath,
-                        out UmaDatabaseEntry fallbackHeadClothAsset))
+                if (Main.AbList.TryGetValue(fallbackHeadClothPath, out UmaDatabaseEntry fallbackHeadClothAsset))
                 {
                     // 缺失专用 CySpring 时先报错，仍使用普通头部物理维持可预览状态。
-                    string message =
-                        $"[UmaViewerBuilder] Mob hair CySpring is missing. " +
-                        $"Fallback to head physics: {fallbackHeadClothPath}\n" +
-                        $"missing={hairClothPath}";
+                    string message = $"[UmaViewerBuilder] Mob hair CySpring is missing. Fallback to head physics: {fallbackHeadClothPath}\nmissing={hairClothPath}";
                     Debug.LogError(message);
-                    UmaViewerUI.Instance?.ShowMessage(
-                        $"Mob hair CySpring physics not found. Using fallback physics.\n" +
-                        $"missing={hairClothPath}\nfallback={fallbackHeadClothPath}",
-                        UIMessageType.Error
-                    );
+                    UmaViewerUI.Instance?.ShowMessage($"Mob hair CySpring physics not found. Using fallback physics.\nmissing={hairClothPath}\nfallback={fallbackHeadClothPath}", UIMessageType.Error);
 
                     umaContainer.LoadPhysics(fallbackHeadClothAsset);
                 }
                 else
                 {
-                    string message =
-                        "[UmaViewerBuilder] Mob head CySpring physics not found.\n" +
-                        $"hair={hairClothPath}\n" +
-                        $"fallback={fallbackHeadClothPath}";
+                    string message = $"[UmaViewerBuilder] Mob head CySpring physics not found.\nhair={hairClothPath}\nfallback={fallbackHeadClothPath}";
                     Debug.LogError(message);
-                    UmaViewerUI.Instance?.ShowMessage(
-                        "Mob head CySpring physics not found.\n" +
-                        $"hair={hairClothPath}\nfallback={fallbackHeadClothPath}",
-                        UIMessageType.Error
-                    );
+                    UmaViewerUI.Instance?.ShowMessage($"Mob head CySpring physics not found.\nhair={hairClothPath}\nfallback={fallbackHeadClothPath}", UIMessageType.Error);
                 }
             }
         }
@@ -628,8 +488,7 @@ public string[] NormalBodyKeywords  = new[] { "skin", "body", "bdy", "face", "he
                 }
                 umaContainer.LoadTail(asset);
 
-
-                //Load Physics
+//Load Physics
                 if (Main.AbList.TryGetValue($"{tailPath}clothes/pfb_{tailName}_cloth00", out UmaDatabaseEntry asset2))
                 {
                     umaContainer.LoadPhysics(asset2);
@@ -665,12 +524,10 @@ public string[] NormalBodyKeywords  = new[] { "skin", "body", "bdy", "face", "he
             }
         }
 
-
-        //修改(载入通用服装ColorSet相关)
+//修改(载入通用服装ColorSet相关)
         UI.ClearColorSetButtons();
 
-
-    }
+}
 
     private void LoadMiniUma(UmaContainerCharacter umaContainer, CharaEntry chara, string costumeId)
     {
@@ -810,12 +667,10 @@ public string[] NormalBodyKeywords  = new[] { "skin", "body", "bdy", "face", "he
             umaContainer.LoadAnimation(asset);
         }
 
-
-        //修改(载入通用服装ColorSet相关)
+//修改(载入通用服装ColorSet相关)
         UI.ClearColorSetButtons();
 
-
-    }
+}
 
     public void LoadProp(UmaDatabaseEntry entry)
     {
@@ -832,285 +687,7 @@ public string[] NormalBodyKeywords  = new[] { "skin", "body", "bdy", "face", "he
         CurrentOtherContainer = prop;
     }
 
-    public void LoadLive(LiveEntry live, List<LiveCharacterSelect> characters)
-    {
-        characters.ForEach(a =>
-        {
-            if (a.CharaEntry == null || string.IsNullOrEmpty(a.CostumeId))
-            {
-                a.CharaEntry = Main.Characters[Random.Range(0, Main.Characters.Count / 2)];
-                a.CostumeId = "0002_00_00";
-            }
-        });
-
-        // 在旧 UI 场景卸载前复制成普通 C# 数据。后续异步加载不会丢角色选择。
-        List<LiveCharacterLoadData> liveCharacters =
-            LiveCharacterLoadData.CaptureAll(characters);
-
-        bool requireStage = UI.isRequireStage;
-        List<UmaDatabaseEntry> preloadEntries =
-            Director.GetLivePreloadEntries(live, liveCharacters, requireStage);
-
-        UmaAssetManager.PreLoadAndRun(preloadEntries, delegate
-        {
-            UmaSceneController.LoadScene(
-                "LiveScene",
-                delegate
-                {
-                    GameObject mainLive = Instantiate(LiveControllerPrefab);
-                    Director controller = mainLive.GetComponentInChildren<Director>();
-                    controller.live = live;
-                    controller.IsRecordVMD = UI.isRecordVMD;
-                    controller.RequireStage = requireStage;
-
-                    var binder = mainLive.GetComponent<CyalumeAutoBinder>() ??
-                                 mainLive.AddComponent<CyalumeAutoBinder>();
-
-                    if (mainLive.GetComponent<Gallop.Live.StageBlinkLightDriver>() == null)
-                        mainLive.AddComponent<Gallop.Live.StageBlinkLightDriver>();
-
-                    if (mainLive.GetComponent<Gallop.Live.StageUVScrollLightDriver>() == null)
-                        mainLive.AddComponent<Gallop.Live.StageUVScrollLightDriver>();
-
-                    if (mainLive.GetComponent<Gallop.Live.MonitorUvMovieProvider>() == null)
-                        mainLive.AddComponent<Gallop.Live.MonitorUvMovieProvider>();
-
-                    if (mainLive.GetComponent<Gallop.Live.StageMonitorDriver>() == null)
-                        mainLive.AddComponent<Gallop.Live.StageMonitorDriver>();
-
-                    binder.musicId = live.MusicId;
-
-                    var transferObjs = new List<GameObject>
-                    {
-                        mainLive,
-                        GameObject.Find("ViewerMain"),
-                        GameObject.Find("Directional Light"),
-                        GameObject.Find("GlobalShaderController"),
-                        GameObject.Find("AudioManager")
-                    };
-
-                    foreach (GameObject obj in transferObjs)
-                    {
-                        if (obj != null)
-                        {
-                            SceneManager.MoveGameObjectToScene(
-                                obj,
-                                SceneManager.GetSceneByName("LiveScene"));
-                        }
-                    }
-
-                    controller.Initialize();
-
-                    int actualMemberCount = controller
-                        ._liveTimelineControl
-                        .data
-                        .worksheetList[0]
-                        .charaMotSeqList
-                        .Count;
-
-                    if (actualMemberCount > liveCharacters.Count && liveCharacters.Count > 0)
-                    {
-                        Debug.LogWarning(
-                            $"actual member count is {actualMemberCount} current {liveCharacters.Count}");
-
-                        var expandedCharacters = new List<LiveCharacterLoadData>();
-                        for (int i = 0; i < actualMemberCount; i++)
-                            expandedCharacters.Add(liveCharacters[i % liveCharacters.Count]);
-
-                        liveCharacters = expandedCharacters;
-                    }
-
-                    LoadLiveUma(liveCharacters);
-
-                    var lyrics = LoadLiveLyrics(live.MusicId);
-                    if (lyrics != null)
-                        LiveViewerUI.Instance.CurrentLyrics = lyrics;
-                },
-                delegate
-                {
-                    Director.instance.InitializeUI();
-                    Director.instance.InitializeTimeline(liveCharacters, UI.LiveMode);
-                    Director.instance.InitializeMusic(live.MusicId, liveCharacters);
-                    Director.instance.Play();
-                });
-        });
-    }
-
-    //Use decrypt function
-    public void LoadLiveSound(int songid, UmaDatabaseEntry SongAwb, bool needLyrics = true)
-    {
-        CurrentLiveSoundAWBIndex = -1; // mix awb together
-        ClearLiveSounds();
-        //load character voice
-        if (SongAwb != null)
-        {
-            PlaySound(SongAwb);
-            AddLiveSound(SongAwb);
-        }
-
-        //load BG
-        string nameVar = $"snd_bgm_live_{songid}_oke";
-        UmaDatabaseEntry BGawb = Main.AbSounds.FirstOrDefault(a => a.Name.Contains(nameVar) && a.Name.EndsWith("awb"));
-        if (BGawb != null)
-        {
-            var BGclip = LoadAudio(BGawb);
-            if (BGclip.Count > 0)
-            {
-                AddAudioSource(BGclip[0]);
-                AddLiveSound(BGawb);
-            }
-        }
-
-        if (needLyrics)
-        {
-            LoadLiveLyrics(songid);
-        }
-    }
-
-    public void loadLivePreviewSound(int songid)
-    {
-        string nameVar = $"snd_bgm_live_{songid}_preview_02";
-        UmaDatabaseEntry previewAwb = Main.AbSounds.FirstOrDefault(a => a.Name.Contains(nameVar) && a.Name.EndsWith("awb"));
-        if (previewAwb != null)
-        {
-            PlaySound(previewAwb, volume : 0.4f, loop : true);
-        }
-    }
-
-    public void PlaySound(UmaDatabaseEntry SongAwb, int subindex = -1, float volume = 1, bool loop = false)
-    {
-        CurrentLyrics.Clear();
-        if (CurrentAudioSources.Count > 0)
-        {
-            var tmp = CurrentAudioSources[0];
-            CurrentAudioSources.Clear();
-            Destroy(tmp.gameObject);
-            UI.AudioSettings.ResetPlayer();
-        }
-        if (subindex == -1)
-        {
-            foreach (AudioClip clip in LoadAudio(SongAwb))
-            {
-                AddAudioSource(clip, volume, loop);
-            }
-        }
-        else
-        {
-            AddAudioSource(LoadAudio(SongAwb)[subindex], volume, loop);
-        }
-
-    }
-
-    public void SetLastAudio(UmaDatabaseEntry AudioAwb, int index)
-    {
-        ClearLiveSounds();
-        AddLiveSound(AudioAwb);
-        CurrentLiveSoundAWBIndex = index;
-    }
-
-    private void AddAudioSource(AudioClip clip, float volume = 1, bool loop = false)
-    {
-        AudioSource source;
-        if (CurrentAudioSources.Count > 0)
-        {
-            source = CurrentAudioSources[0].gameObject.AddComponent<AudioSource>();
-        }
-        else
-        {
-            source = new GameObject("SoundController").AddComponent<AudioSource>();
-        }
-        CurrentAudioSources.Add(source);
-        source.clip = clip;
-        source.volume = volume;
-        source.loop = loop;
-        source.Play();
-    }
-
-
-
-    public List<UmaWaveStream> LoadAudioStreams(UmaDatabaseEntry awb)
-    {
-        var streams = new List<UmaWaveStream>();
-        string awbPath = awb.FilePath;
-        if (!File.Exists(awbPath)) return streams;
-
-        FileStream awbFile = File.OpenRead(awbPath);
-        AwbReader awbReader = new AwbReader(awbFile);
-
-        foreach (Wave wave in awbReader.Waves)
-        {
-            var stream = new UmaWaveStream(awbReader, wave.WaveId);
-            streams.Add(stream);
-        }
-         
-
-       return streams;
-    }
-
-    public static List<AudioClip> LoadAudio(UmaDatabaseEntry awb)
-    {
-        List<AudioClip> clips = new List<AudioClip>();
-        string awbPath = awb.FilePath;
-        if (!File.Exists(awbPath)) return clips;
-
-        FileStream awbFile = File.OpenRead(awbPath);
-        AwbReader awbReader = new AwbReader(awbFile);
-
-        foreach (Wave wave in awbReader.Waves)
-        {
-            var stream = new UmaWaveStream(awbReader, wave.WaveId);
-            var sampleProvider = stream.ToSampleProvider();
-
-            int channels = stream.WaveFormat.Channels;
-            int bytesPerSample = stream.WaveFormat.BitsPerSample / 8;
-            int sampleRate = stream.WaveFormat.SampleRate;
-
-            AudioClip clip = AudioClip.Create(
-                Path.GetFileNameWithoutExtension(awb.Name) + "_" + wave.WaveId.ToString(),
-                (int)(stream.Length / channels / bytesPerSample),
-                channels,
-                sampleRate,
-                true,
-                data => sampleProvider.Read(data, 0, data.Length),
-                position => stream.Position = position * channels * bytesPerSample);
-
-            clips.Add(clip);
-        }
-
-        return clips;
-    }
-
-    public List<UmaLyricsData> LoadLiveLyrics(int songid)
-    {
-        if (CurrentLyrics.Count > 0) CurrentLyrics.Clear();
-
-        string lyricsVar = $"live/musicscores/m{songid}/m{songid}_lyrics";
-        UmaDatabaseEntry lyricsAsset = Main.AbList[lyricsVar];
-        AssetBundle bundle = UmaAssetManager.LoadAssetBundle(lyricsAsset);
-        TextAsset asset = bundle.LoadAsset<TextAsset>(Path.GetFileNameWithoutExtension(lyricsVar));
-        string[] lines = asset.text.Split("\n"[0]);
-
-        for (int i = 1; i < lines.Length; i++)
-        {
-            string[] words = lines[i].Split(',');
-            if (words.Length > 0)
-            {
-                try
-                {
-                    UmaLyricsData lyricsData = new UmaLyricsData()
-                    {
-                        time = float.Parse(words[0]) / 1000,
-                        text = (words.Length > 1) ? words[1] : ""
-                    };
-                    CurrentLyrics.Add(lyricsData);
-                }
-                catch { }
-            }
-        }
-        return CurrentLyrics;
-    }
-
-    public void LoadAssetPath(string path, Transform SetParent)
+public void LoadAssetPath(string path, Transform SetParent)
     {
         var go = Instantiate(UmaViewerMain.Instance.AbList[path].Get<GameObject>(), SetParent);
 
@@ -1144,35 +721,26 @@ public string[] NormalBodyKeywords  = new[] { "skin", "body", "bdy", "face", "he
 
     public Sprite LoadCharaIcon(string id)
     {
-        string value = $"chara/chr{id}/chr_icon_{id}";
-        if (UmaViewerMain.Instance.AbList.TryGetValue(value, out UmaDatabaseEntry entry))
-        {
-            AssetBundle assetBundle = UmaAssetManager.LoadAssetBundle(entry, true);
-            if (assetBundle.Contains($"chr_icon_{id}"))
-            {
-                Texture2D texture = (Texture2D)assetBundle.LoadAsset($"chr_icon_{id}");
-                Sprite sprite = Sprite.Create(texture, new Rect(0, 0, texture.width, texture.height), Vector2.zero);
-                UmaAssetManager.UnloadAssetBundle(entry, false);
-                return sprite;
-            }
-        }
-        return null;
+        string assetName = $"chr_icon_{id}";
+        return UmaViewerMain.Instance.AbList.TryGetValue($"chara/chr{id}/{assetName}", out var entry) ? LoadSpriteFromEntry(entry, assetName) : null;
     }
 
     public Sprite LoadMobCharaIcon(string id)
     {
-        string value = $"mob/mob_chr_icon_{id}_000001_01";
-        if (UmaViewerMain.Instance.AbList.TryGetValue(value, out UmaDatabaseEntry entry))
+        string assetName = $"mob_chr_icon_{id}_000001_01";
+        return UmaViewerMain.Instance.AbList.TryGetValue($"mob/{assetName}", out var entry) ? LoadSpriteFromEntry(entry, assetName) : null;
+    }
+
+    private Sprite LoadSpriteFromEntry(UmaDatabaseEntry entry, string assetName)
+    {
+        if (entry == null) return null;
+        AssetBundle assetBundle = UmaAssetManager.LoadAssetBundle(entry, true);
+        if (assetBundle != null && assetBundle.Contains(assetName))
         {
-            string path = entry.FilePath;
-            AssetBundle assetBundle = UmaAssetManager.LoadAssetBundle(entry, true);
-            if (assetBundle.Contains($"mob_chr_icon_{id}_000001_01"))
-            {
-                Texture2D texture = (Texture2D)assetBundle.LoadAsset($"mob_chr_icon_{id}_000001_01");
-                Sprite sprite = Sprite.Create(texture, new Rect(0, 0, texture.width, texture.height), Vector2.zero);
-                UmaAssetManager.UnloadAssetBundle(entry, false);
-                return sprite;
-            }
+            Texture2D texture = (Texture2D)assetBundle.LoadAsset(assetName);
+            Sprite sprite = Sprite.Create(texture, new Rect(0, 0, texture.width, texture.height), Vector2.zero);
+            UmaAssetManager.UnloadAssetBundle(entry, false);
+            return sprite;
         }
         return null;
     }
@@ -1186,25 +754,7 @@ public string[] NormalBodyKeywords  = new[] { "skin", "body", "bdy", "face", "he
         return sprite;
     }
 
-    public Sprite LoadLiveIcon(int musicid)
-    {
-        string value = $"live/jacket/jacket_icon_l_{musicid}";
-
-        if (UmaViewerMain.Instance.AbList.TryGetValue(value, out UmaDatabaseEntry entry))
-        {
-            AssetBundle assetBundle = UmaAssetManager.LoadAssetBundle(entry, true);
-            if (assetBundle.Contains($"jacket_icon_l_{musicid}"))
-            {
-                Texture2D texture = (Texture2D)assetBundle.LoadAsset($"jacket_icon_l_{musicid}");
-                Sprite sprite = Sprite.Create(texture, new Rect(0, 0, texture.width, texture.height), Vector2.zero);
-                UmaAssetManager.UnloadAssetBundle(entry, false);
-                return sprite;
-            }
-        }
-        return null;
-    }
-
-    public void UnloadProp()
+public void UnloadProp()
     {
         if (CurrentOtherContainer != null)
         {
@@ -1273,20 +823,6 @@ public string[] NormalBodyKeywords  = new[] { "skin", "body", "bdy", "face", "he
         }
     }
 
-    private void AddLiveSound(UmaDatabaseEntry entry)
-    {
-        UmaAssetManager.LoadAssetBundle(entry, false, false);
-        CurrentLiveSoundAWB.Add(entry);
-    }
-
-    private void ClearLiveSounds()
-    {
-        foreach (var liveSound in CurrentLiveSoundAWB)
-        {
-            UmaAssetManager.UnloadAssetBundle(liveSound, true);
-        }
-        CurrentLiveSoundAWB.Clear();
-    }
 private bool _dumpedNormalRenderers = false;
 
 private void ApplyNormalCostumeVisibilityOptions(UmaContainerCharacter uma)
@@ -1400,5 +936,61 @@ private static bool MaterialsMatchAny(Material[] materials, string[] keywords)
     }
     return false;
 }
+
+    /// <summary>
+    /// 加载通用服装身体贴图（复用自 LoadNormalUma 与 LoadMobUma）
+    /// </summary>
+    private void LoadGenericBodyTextures(UmaContainerCharacter umaContainer, string costumeId, string costumeIdShort, string skin, string bust, string socks)
+    {
+        string texPattern1 = "", texPattern2 = "", texPattern3 = "", texPattern4 = "", texPattern5 = "";
+        switch (costumeId.Split('_')[0])
+        {
+            case "0001":
+                texPattern1 = $"tex_bdy{costumeIdShort}_00_{skin}_{bust}_0{socks}";
+                texPattern2 = $"tex_bdy{costumeIdShort}_00_0_{bust}";
+                texPattern3 = $"tex_bdy{costumeIdShort}_zekken";
+                texPattern4 = $"tex_bdy{costumeIdShort}_00_waku";
+                texPattern5 = $"tex_bdy{costumeIdShort}_num";
+                break;
+            case "0003":
+                texPattern1 = $"tex_bdy{costumeIdShort}_00_{skin}_{bust}";
+                texPattern2 = $"tex_bdy{costumeIdShort}_00_0_{bust}";
+                break;
+            case "0006": // last var is color?
+                texPattern1 = $"tex_bdy{costumeId}_{skin}_{bust}_0{0}";
+                texPattern2 = $"tex_bdy{costumeId}_0_{bust}_00_";
+                break;
+            default:
+                texPattern1 = $"tex_bdy{costumeId}_{skin}_{bust}";
+                texPattern2 = $"tex_bdy{costumeId}_0_{bust}";
+                break;
+        }
+        Debug.Log(texPattern1 + " " + texPattern2);
+        // Load Body Textures
+        foreach (var asset1 in UmaViewerMain.Instance.AbChara.Where(a => a.Name.StartsWith(UmaDatabaseController.BodyPath)
+            && (a.Name.Contains(texPattern1)
+            || a.Name.Contains(texPattern2)
+            || (!string.IsNullOrEmpty(texPattern3) && a.Name.Contains(texPattern3))
+            || (!string.IsNullOrEmpty(texPattern4) && a.Name.Contains(texPattern4))
+            || (!string.IsNullOrEmpty(texPattern5) && a.Name.Contains(texPattern5)))))
+        {
+            umaContainer.LoadTextures(asset1);
+        }
+    }
+
+    /// <summary>
+    /// 加载通用服装布料物理（复用自 LoadNormalUma 与 LoadMobUma）
+    /// </summary>
+    private void LoadGenericBodyPhysics(UmaContainerCharacter umaContainer, string costumeIdShort, string bust)
+    {
+        if (Main.AbList.TryGetValue(UmaDatabaseController.BodyPath + $"bdy{costumeIdShort}/clothes/pfb_bdy{costumeIdShort}_cloth00", out var cloth00))
+        {
+            umaContainer.LoadPhysics(cloth00);
+            if (Main.AbList.TryGetValue(UmaDatabaseController.BodyPath + $"bdy{costumeIdShort}/clothes/pfb_bdy{costumeIdShort}_bust{bust}_cloth00", out var clothBust))
+            {
+                umaContainer.LoadPhysics(clothBust);
+            }
+        }
+    }
 
 }

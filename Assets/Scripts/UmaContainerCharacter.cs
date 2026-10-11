@@ -10,7 +10,7 @@ using System.Linq;
 using UnityEngine;
 using static SerializableBone;
 
-public class UmaContainerCharacter : UmaContainer
+public partial class UmaContainerCharacter : UmaContainer
 {
     public CharaEntry CharaEntry;
     public DataRow CharaData;

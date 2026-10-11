@@ -27,41 +27,77 @@ namespace Gallop
 
         public static int GetCullingLayer(LayerIndex layerIndex)
         {
-            string layerName;
-
-            switch (layerIndex)
-            {
-                case LayerIndex.LayerCHAR:
-                    layerName = "CHAR";
-                    break;
-
-                case LayerIndex.LayerCharacter3D_NotReflect:
-                    layerName = "Character3D_NotReflect";
-                    break;
-
-                case LayerIndex.LayerCharacter3D_0:
-                    layerName = "Character3D_0";
-                    break;
-
-                case LayerIndex.LayerCharacter3D_1:
-                    layerName = "Character3D_1";
-                    break;
-
-                default:
-                    return 0;
-            }
-
-            int layer = LayerMask.NameToLayer(layerName);
+            int layer = GetLayer(layerIndex);
 
             if (layer < 0)
             {
                 Debug.LogWarning(
-                    $"[GraphicSettings] Unity Layer 不存在: {layerName}");
+                    $"[GraphicSettings] Unity Layer 不存在: {GetLayerName(layerIndex)}");
 
                 return 0;
             }
 
             return 1 << layer;
+        }
+
+        public static int GetLayer(LayerIndex layerIndex)
+        {
+            return LayerMask.NameToLayer(GetLayerName(layerIndex));
+        }
+
+        public static LayerIndex GetLayerIndex(int layer)
+        {
+            for (int i = 0; i <= (int)LayerIndex.LayerCharacter3D_1; i++)
+            {
+                LayerIndex index = (LayerIndex)i;
+                if (GetLayer(index) == layer)
+                    return index;
+            }
+
+            return LayerIndex.LayerDefault;
+        }
+
+        public static string GetLayerName(LayerIndex layerIndex)
+        {
+            switch (layerIndex)
+            {
+                case LayerIndex.LayerDefault:
+                    return "Default";
+                case LayerIndex.LayerCHAR:
+                    return "CHAR";
+                case LayerIndex.LayerBG:
+                    return "BG";
+                case LayerIndex.LayerEFFECT:
+                    return "EFFECT";
+                case LayerIndex.LayerWater:
+                    return "Water";
+                case LayerIndex.LayerCircleProfile:
+                    return "CircleProfile";
+                case LayerIndex.LayerIgnoreRaycast:
+                    return "Ignore Raycast";
+                case LayerIndex.Layer3D:
+                    return "3D";
+                case LayerIndex.LayerTransparentFX:
+                    return "TransparentFX";
+                case LayerIndex.LayerTouchEffect:
+                    return "TouchEffect";
+                case LayerIndex.LayerNO_VISIBLE:
+                    return "NO_VISIBLE";
+                case LayerIndex.LayerUI:
+                    return "UI";
+                case LayerIndex.Layer3DUI:
+                    return "3D_UI";
+                case LayerIndex.LayerBackground3D_NotReflect:
+                    return "Background3D_NotReflect";
+                case LayerIndex.LayerCharacter3D_NotReflect:
+                    return "Character3D_NotReflect";
+                case LayerIndex.LayerCharacter3D_0:
+                    return "Character3D_0";
+                case LayerIndex.LayerCharacter3D_1:
+                    return "Character3D_1";
+                default:
+                    return "Default";
+            }
         }
     }
 }

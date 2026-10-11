@@ -40,7 +40,7 @@ namespace LibMMD.Reader
             ReadParts(reader, config, model, pmxConfig, textureList);
             ReadBones(reader, model, pmxConfig);
             ReadMorphs(reader, model, pmxConfig);
-            ReadEntries(reader, pmxConfig);
+            ReadEntries(reader, model, pmxConfig);
             ReadRigidBodies(reader, model, pmxConfig);
             ReadJoints(reader, model, pmxConfig);
             model.Normalize();
@@ -132,29 +132,37 @@ namespace LibMMD.Reader
             }
         }
 
-        //unused data
-        private static void ReadEntries(BinaryReader reader, PmxConfig pmxConfig)
+        private static void ReadEntries(BinaryReader reader, RawMMDModel model, PmxConfig pmxConfig)
         {
             var entryItemNum = reader.ReadInt32();
+            model.Entrys = new System.Collections.Generic.List<PMXEntryItem>(entryItemNum);
             for (var i = 0; i < entryItemNum; ++i)
             {
-                MMDReaderWriteUtil.ReadSizedString(reader, pmxConfig.Encoding); //entryItemName
-                MMDReaderWriteUtil.ReadSizedString(reader, pmxConfig.Encoding); //entryItemNameEn
-                reader.ReadByte(); //isSpecial
+                var entry = new PMXEntryItem
+                {
+                    EntryItemName = MMDReaderWriteUtil.ReadSizedString(reader, pmxConfig.Encoding),
+                    EntryItemNameEn = MMDReaderWriteUtil.ReadSizedString(reader, pmxConfig.Encoding),
+                    IsSpecial = reader.ReadByte() != 0,
+                    Elements = new System.Collections.Generic.List<PMXEntryItem.Element>()
+                };
                 var elementNum = reader.ReadInt32();
                 for (var j = 0; j < elementNum; ++j)
                 {
                     var isMorph = reader.ReadByte() == 1;
+                    var element = new PMXEntryItem.Element { IsMorph = isMorph };
                     if (isMorph)
                     {
-                        MMDReaderWriteUtil.ReadIndex(reader, pmxConfig.MorphIndexSize); //morphIndex
+                        element.MorphIndex = MMDReaderWriteUtil.ReadIndex(reader, pmxConfig.MorphIndexSize);
                     }
                     else
                     {
-                        MMDReaderWriteUtil.ReadIndex(reader, pmxConfig.BoneIndexSize); //boneIndex
+                        element.BoneIndex = MMDReaderWriteUtil.ReadIndex(reader, pmxConfig.BoneIndexSize);
                     }
+                    entry.Elements.Add(element);
                 }
+                model.Entrys.Add(entry);
             }
+            PMXDisplayFrameExporter.ValidateEntries(model);
         }
 
         private static void ReadMorphs(BinaryReader reader, RawMMDModel model, PmxConfig pmxConfig)

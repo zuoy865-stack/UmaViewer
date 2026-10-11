@@ -46,13 +46,36 @@ namespace Gallop.Live.Cutt
         {
             public string propsName;
             public bool isCharaProps;
+            public bool IsToonProp;
+            public bool IsRichProp;
+            public bool IsDepthWriteAlphaMesh;
+
             public int charaPropsMajorId;
             public int charaPropsMinorId;
+
+            // 角色 → 骨骼的默认挂载关节名表
             public string[] attachJointNames;
+
+            // 「道具挂到另一个道具」的静态表：Id 与关节名一一对应。
+            // 这两个字段此前没有声明，资产里的数据会被整段丢弃，
+            // 于是这类道具只能回退到写死的 Hand_Attach_R —— 手持物错乱的直接原因之一。
+            public int[] AttachPropIdArray;
+            public string[] AttachPropJointNameArray;
+
             public int attachJointNameCount;
             public bool hasShadow;
+            public bool isInfluenceOfCharaHeight;
+
             public LiveTimelinePropsSettings.PropsConditionGroup[] propsConditionGroup;
             public int propsConditionGroupCount;
+
+            public bool IsFlareCollisionEnabled;
+            public bool isUseGenderDiffPropsId;
+
+            public int MaleCharaPropsMajorId;
+            public int MaleCharaPropsMinorId;
+            public int FemaleCharaPropsMajorId;
+            public int FemaleCharaPropsMinorId;
         }
 
         public LiveTimelinePropsSettings.PropsDataGroup[] propsDataGroup;

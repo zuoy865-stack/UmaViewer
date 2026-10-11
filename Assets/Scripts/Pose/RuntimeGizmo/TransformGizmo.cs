@@ -201,7 +201,11 @@ namespace RuntimeGizmos
 
             GetTarget();
 
-            PoseManager.SetTooltip(2, $"\n\nSpace:\t{space}\nPivot:\t\t{pivot}\nScale:\t\t{scaleType}\nCenter:\t{centerType}");
+            // 仅在姿态编辑模式开启时才更新提示框，避免在常规浏览或 Live 演出时产生每帧字符串分配与跨组件开销
+            if (UmaViewerUI.Instance != null && UmaViewerUI.Instance.PoseManager != null && UmaViewerUI.Instance.PoseManager.PoseModeOn)
+            {
+                PoseManager.SetTooltip(2, $"\n\nSpace:\t{space}\nPivot:\t\t{pivot}\nScale:\t\t{scaleType}\nCenter:\t{centerType}");
+            }
 
             if (mainTargetRoot == null) return;
 
