@@ -1,4 +1,4 @@
-# Uma Viewer 
+# Uma Viewer
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
@@ -21,6 +21,7 @@ Uma Viewer 是一个 Unity 应用程序，可以方便地查看《赛马娘 Pret
 | JP (DMM) | ✅ |
 | JP (Steam) | ✅ |
 | KR | ✅ |
+| TW (台湾服) | ✅ |
 | Global | ✅ |
 
 ---
@@ -33,9 +34,27 @@ Uma Viewer 是一个 Unity 应用程序，可以方便地查看《赛马娘 Pret
 
 ---
 
+## 🇹🇼 台湾服 / TW 用户
+
+UmaViewer 的**默认地区为日本（JP）**。使用台湾服时，需要手动切换地区：
+
+1. 打开 UmaViewer 的 **Settings → Other** 设置页面。
+2. 将 **Region** 从默认的 **Japan (JP)** 更改为 **Taiwan**。
+3. 如果程序没有自动识别台湾版游戏数据，请通过 **Settings → Other → Change DataPath** 手动选择台湾版游戏数据所在的文件夹。
+
+台湾版的游戏路径取决于你自己的安装位置。例如，某台电脑上的安装路径为：
+
+```text
+D:\KOMOE Game\komoemumamusume\komoemumamusume Game
+```
+
+**注意：这只是路径示例，并不是所有台湾服玩家都安装在 D 盘。** 你的游戏也可能安装在 C 盘、E 盘或其他位置。请根据自己的实际安装目录选择相应的游戏数据文件夹，不要直接照抄示例路径。
+
+---
+
 ### 要求 / 安装
 
-1. 运行 Viewer 前，需要安装 [Uma Musume: Pretty Derby](https://dmg.umamusume.jp/) 并完整下载游戏数据。
+1. 运行 Viewer 前，需要安装 [Uma Musume: Pretty Derby](https://dmg.umamusume.jp/) 并完整下载游戏数据。台湾服用户应使用自己安装的台湾版游戏客户端和对应数据。
 
 2. 根据你的游戏版本和更新情况，游戏数据可能存放在 **不同的位置**：
 
@@ -47,16 +66,24 @@ Uma Viewer 是一个 Unity 应用程序，可以方便地查看《赛马娘 Pret
 
      `...\<Umamusume 安装目录>\Umamusume_Data\Persistent(?)\`
 
-   - 无论是哪一种情况，请确认目标文件夹中的文件结构大致如下：
+   - **台湾版安装路径示例：**
 
-         Target Folder\
-           meta
-           master\
-             master.mdb
-           dat\
-             2A\
-             2B\
-             ...
+     `D:\KOMOE Game\komoemumamusume\komoemumamusume Game`
+
+     具体路径由你安装台湾版游戏时选择的位置决定。若 Viewer 无法自动识别，请手动定位实际游戏数据目录。
+
+   - 无论是哪一种情况，请确认所选目标文件夹包含 Viewer 所需的游戏数据。常见的目录结构大致如下：
+
+     ```text
+     Target Folder\
+       meta
+       master\
+         master.mdb
+       dat\
+         2A\
+         2B\
+         ...
+     ```
 
 3. 在 [Releases](https://github.com/zuoy865-stack/UmaViewer/releases) 页面下载最新的 `UmaViewer.zip`。
 
@@ -160,3 +187,4 @@ MarshmallowAndroid：
 [UmaMusumeExplorer](https://github.com/MarshmallowAndroid/UmaMusumeExplorer)
 
 感谢该项目提供的 acb / awb 解码器。
+
