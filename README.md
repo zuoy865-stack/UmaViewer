@@ -1,21 +1,24 @@
-# Uma Viewer 
+# Uma Viewer
+
 [English](README.md) | [简体中文](README.zh-CN.md)
+
 ⚠️ If you see **"Failed to load il2cpp"** or dlls or the app cannot start on Windows, it may be blocked by **Windows Smart App Control**.
 
- If it fails, turn off Smart App Control:
+If it fails, turn off Smart App Control:
 
-   `Windows Security → App & browser control → Smart App Control settings → Off`
+`Windows Security → App & browser control → Smart App Control settings → Off`
 
 This issue is caused by Windows blocking unsigned builds. The program should start normally after moving it to a local folder or disabling Smart App Control.
 
 Unity application that makes it easy to view assets from Uma Musume: Pretty Derby.
 
-| Version   | Supported |
-|-----------|-----------|
-| JP (DMM)  | ✅        |
-| JP (Steam)| ✅        |
-| KR        | ✅        |
-| Global    | ✅        |
+| Version    | Supported |
+|------------|-----------|
+| JP (DMM)   | ✅        |
+| JP (Steam) | ✅        |
+| KR         | ✅        |
+| TW (Taiwan)| ✅        |
+| Global     | ✅        |
 
 ------------
 
@@ -27,25 +30,44 @@ Currently only the default work mode is supported - you need to download assets 
 
 ------------
 
+## 🇹🇼 TW/Taiwan users
+
+UmaViewer uses **Japan (JP)** as the default region. To use the Taiwan server, open **Settings → Other** and change **Region** to **Taiwan**.
+
+The Taiwan version's game data location depends on where you installed the game. For example, one installation may be located at:
+
+```text
+D:\KOMOE Game\komoemumamusume\komoemumamusume Game
+```
+
+**This is only an example path.** Your game might be installed on a different drive or in a different directory. Use **Settings → Other → Change DataPath** to select the folder containing your own Taiwan game data. Check that the selected folder contains the required `meta`, `master`, and `dat` entries as described below.
+
+------------
+
 ### Requirements/Installation
-1. [Uma Musume: Pretty Derby](https://dmg.umamusume.jp/) with full data download is required to run the viewer.
+
+1. Install the version of **Uma Musume: Pretty Derby** for your region (for JP: [official DMM site](https://dmg.umamusume.jp/)) and download the full game data before using the viewer.
 2. Depending on your version and update status, the game stores its data in **different locations**
- - **DMM/Steam Older installations :** C:\Users\\*your_username*\AppData\LocalLow\Cygames\umamusume(?)\
- - **DMM/Steam Fresh installations :** ...\\*Umamusume installation directory*\Umamusume_Data\Persistent(?)\
- - In any case，confirm your file listing in target folder looks like this
-   * Target Folder\
-     * **meta**
-     * master\
-       * **master.mdb**
-     * dat\
-       - 2A\\...
-       - 2B\\...
-       - ...\\...
-3. Download the most recent UmaViewer.zip file from [Releases](https://github.com/zuoy865-stack/UmaViewer/releases) tab.
-4. Extract the archive anywhere, can be extracted over previous version.
-5. Run the UmaViewer.exe. 
-6. UmaViewer will try to automatically detect the game data folder.  
-   - If it fails or shows an error, go to **Settings → Other → Change DataPath** and manually select target folder.
+   - **DMM/Steam Older installations:** `C:\Users\*your_username*\AppData\LocalLow\Cygames\umamusume(?)\`
+   - **DMM/Steam Fresh installations:** `...\*Umamusume installation directory*\Umamusume_Data\Persistent(?)\`
+   - **TW (Taiwan) installations:** The location depends on the installation directory chosen in the game's launcher. See the TW/Taiwan section above.
+   - In any case, confirm your file listing in the target folder looks like this:
+
+     ```text
+     Target Folder
+     ├── meta
+     ├── master
+     │   └── master.mdb
+     └── dat
+         ├── 2A\...
+         ├── 2B\...
+         └── ...\...
+     ```
+3. Download the most recent UmaViewer.zip file from the [Releases](https://github.com/zuoy865-stack/UmaViewer/releases) tab.
+4. Extract the archive anywhere; it can be extracted over a previous version.
+5. Run `UmaViewer.exe`.
+6. UmaViewer will try to automatically detect the game data folder.
+   - If it fails or shows an error, go to **Settings → Other → Change DataPath** and manually select the target folder.
 
 ------------
 
@@ -58,28 +80,26 @@ Currently only the default work mode is supported - you need to download assets 
 
 PMX exporter maintainers should also read [PMX Export Standard and Postmortem](docs/pmx-export-standard-and-postmortem.md).
 
-     脚本里面有错误的单词不要改! (Cy拼错一堆单词,我都无语了😓)
+脚本里面有错误的单词不要改! (Cy拼错一堆单词,我都无语了😓)
 
 ### Features
 
-||||
-| ------------ | ------------ | ------------ |
-| ✓ - Working | / - Incomplete  | x - Unsupported  |
+| ✓ - Working | / - Incomplete | x - Unsupported |
+|-------------|----------------|-----------------|
 
-|||
-| ------------ | ------------ |
-| Viewing main character models/animations | ✓  |
-| Swapping costumes/animations between characters | ✓  |
-| Viewing chibi models/animations | ✓  |
+| Feature | Status |
+|---------|--------|
+| Viewing main character models/animations | ✓ |
+| Swapping costumes/animations between characters | ✓ |
+| Viewing chibi models/animations | ✓ |
 | Viewing mob (NPC) models | ✓ |
-| Playing facial animations, custom sliders | ✓  |
-| Cloth/Hair physics | ✓  |
-| Playing Live Audio with Lyrics | ✓  |
-| Exporting animations to MMD | ✓  |
-| Recording animations (.gif), screenshots | ✓  |
-| Viewing Props, Scenery, Live scenes | /  |
-| Exporting models | /  |
-
+| Playing facial animations, custom sliders | ✓ |
+| Cloth/Hair physics | ✓ |
+| Playing Live Audio with Lyrics | ✓ |
+| Exporting animations to MMD | ✓ |
+| Recording animations (.gif), screenshots | ✓ |
+| Viewing Props, Scenery, Live scenes | / |
+| Exporting models | / |
 
 All characters and animations are supported
 
@@ -102,7 +122,9 @@ and more
 <img src="https://user-images.githubusercontent.com/59540382/222422871-12e80e0b-778b-4f42-b581-5e4af5cd6df9.png" height="350" />
 
 ### Also check out:
+
 [UmaChat by kagari](https://github.com/kagari-bi/UmaChat) - model viewer fork that lets you chat with Umas using AI + TTS
 
 ### Special Thank to:
+
 MarshmallowAndroid: [UmaMusumeExplorer](https://github.com/MarshmallowAndroid/UmaMusumeExplorer) for acb/awb decoder.
